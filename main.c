@@ -376,6 +376,27 @@ enum {
    PCD_SCRIPTWAITNAMED,
    PCD_TRANSLATIONRANGE3,
    PCD_GOTOSTACK,
+   PCD_ASSIGNSCRIPTARRAY,
+   PCD_PUSHSCRIPTARRAY,
+   PCD_ADDSCRIPTARRAY,
+   PCD_SUBSCRIPTARRAY,
+   PCD_MULSCRIPTARRAY,
+   PCD_DIVSCRIPTARRAY,
+   PCD_MODSCRIPTARRAY,
+   PCD_INCSCRIPTARRAY,
+   PCD_DECSCRIPTARRAY,
+   PCD_ANDSCRIPTARRAY,
+   PCD_EORSCRIPTARRAY,
+   PCD_ORSCRIPTARRAY,
+   PCD_LSSCRIPTARRAY,
+   PCD_RSSCRIPTARRAY,
+   PCD_PRINTSCRIPTCHARARRAY,
+   PCD_PRINTSCRIPTCHRANGE,
+   PCD_STRCPYTOSCRIPTCHRANGE,
+   PCD_LSPEC5EX,
+   PCD_LSPEC5EXRESULT,
+   PCD_TRANSLATIONRANGE4,
+   PCD_TRANSLATIONRANGE5,
    PCD_TOTAL
 };
 
@@ -828,7 +849,28 @@ static struct {
    { "callstack", 0 },
    { "scriptwaitnamed", 0 },
    { "translationrange3", 0 },
-   { "gotostack", 0 }
+   { "gotostack", 0 },
+   { "assignscriptarray", 1 },
+   { "pushscriptarray", 1 },
+   { "addscriptarray", 1 },
+   { "subscriptarray", 1 },
+   { "mulscriptarray", 1 },
+   { "divscriptarray", 1 },
+   { "modscriptarray", 1 },
+   { "incscriptarray", 1 },
+   { "decscriptarray", 1 },
+   { "andscriptarray", 1 },
+   { "eorscriptarray", 1 },
+   { "orscriptarray", 1 },
+   { "lsscriptarray", 1 },
+   { "rsscriptarray", 1 },
+   { "printscriptchararray", 0 },
+   { "printscriptchrange", 0 },
+   { "strcpytoscriptchrange", 0 },
+   { "lspec5ex", 1 },
+   { "lspec5exresult", 1 },
+   { "translationrange4", 0 },
+   { "translationrange5", 0 },
 };
 
 int main( int argc, char* argv[] ) {
@@ -1493,7 +1535,21 @@ void show_pcode( struct object* object, int offset, int code_size ) {
          opc == PCD_RSMAPARRAY ||
          opc == PCD_RSWORLDARRAY ||
          opc == PCD_RSGLOBALARRAY ||
-         opc == PCD_PUSHFUNCTION ) {
+         opc == PCD_PUSHFUNCTION ||
+         opc == PCD_ASSIGNSCRIPTARRAY ||
+         opc == PCD_PUSHSCRIPTARRAY ||
+         opc == PCD_ADDSCRIPTARRAY ||
+         opc == PCD_SUBSCRIPTARRAY ||
+         opc == PCD_MULSCRIPTARRAY ||
+         opc == PCD_DIVSCRIPTARRAY ||
+         opc == PCD_MODSCRIPTARRAY ||
+         opc == PCD_INCSCRIPTARRAY ||
+         opc == PCD_DECSCRIPTARRAY ||
+         opc == PCD_ANDSCRIPTARRAY ||
+         opc == PCD_EORSCRIPTARRAY ||
+         opc == PCD_ORSCRIPTARRAY ||
+         opc == PCD_LSSCRIPTARRAY ||
+         opc == PCD_RSSCRIPTARRAY ) {
          int arg = 0;
          if ( object->small_code ) {
             char ch = 0;
