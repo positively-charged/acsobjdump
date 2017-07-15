@@ -435,6 +435,7 @@ struct chunk {
       CHUNK_AIMP,
       CHUNK_ASTR,
       CHUNK_MSTR,
+      CHUNK_ATAG,
       CHUNK_LOAD,
       CHUNK_FUNC,
       CHUNK_FNAM,
@@ -470,6 +471,8 @@ static void show_aray( struct chunk* );
 static void show_aini( struct chunk* );
 static void show_aimp( struct chunk* );
 static void show_astr_mstr( struct chunk* );
+static void show_atag( struct chunk* chunk );
+static void show_atag_version0( struct chunk* chunk );
 static void show_load( struct chunk* );
 static void show_func( struct object*, struct chunk* );
 static void show_fnam( struct chunk* );
@@ -1054,6 +1057,9 @@ bool show_chunk( struct object* object, struct chunk* chunk,
       case CHUNK_MSTR:
          show_astr_mstr( chunk );
          break;
+      case CHUNK_ATAG:
+         show_atag( chunk );
+         break;
       case CHUNK_LOAD:
          show_load( chunk );
          break;
@@ -1163,6 +1169,58 @@ void show_astr_mstr( struct chunk* chunk ) {
       memcpy( &index, chunk->data + sizeof( int ) * i, sizeof( int ) );
       printf( "tagged=%d\n", index );
       ++i;
+   }
+}
+
+static void show_atag( struct chunk* chunk ) {
+   unsigned char version = 0;
+   memcpy( &version, chunk->data, sizeof( version ) );
+   switch ( version ) {
+   case 0:
+      show_atag_version0( chunk );
+      break;
+   default:
+      printf( "chunk-version=%d\n", version );
+      printf( "this version not supported\n" );
+   }
+}
+
+static void show_atag_version0( struct chunk* chunk ) {
+   const char* data = chunk->data;
+   unsigned char version = 0;
+   memcpy( &version, data, sizeof( version ) );
+   data += sizeof( version );
+   int index = 0;
+   memcpy( &index, data, sizeof( index ) );
+   data += sizeof( index );
+   unsigned char tag = 0;
+   int total_tags = ( chunk->size - sizeof( version ) - sizeof( index ) ) /
+      sizeof( tag );
+   printf( "chunk-version=%d tagged-array=%d total-tagged-elements=%d\n",
+      version, index, total_tags );
+   for ( int i = 0; i < total_tags; ++i ) {
+      memcpy( &tag, data, sizeof( tag ) );
+      data += sizeof( tag );
+      enum {
+         TAG_INTEGER,
+         TAG_STRING,
+         TAG_FUNCTION,
+      };
+      printf( "[%d] ", i );
+      switch ( tag ) {
+      case TAG_INTEGER:
+         printf( "integer" );
+         break;
+      case TAG_STRING:
+         printf( "string" );
+         break;
+      case TAG_FUNCTION:
+         printf( "function" );
+         break;
+      default:
+         printf( "unknown (tag-type=%d)", tag );
+      }
+      printf( "\n" );
    }
 }
 
@@ -1970,6 +2028,7 @@ int get_chunk_type( const char* name ) {
       { "AIMP", CHUNK_AIMP },
       { "ASTR", CHUNK_ASTR },
       { "MSTR", CHUNK_MSTR },
+      { "ATAG", CHUNK_ATAG },
       { "LOAD", CHUNK_LOAD },
       { "FUNC", CHUNK_FUNC },
       { "FNAM", CHUNK_FNAM },
