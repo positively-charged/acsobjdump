@@ -414,6 +414,7 @@ struct object {
       FORMAT_BIG_E,
       FORMAT_LITTLE_E,
    } format;
+   int directory_offset;
    int chunk_offset;
    bool indirect_format;
    bool small_code;
@@ -490,7 +491,9 @@ static void show_alib( struct chunk* chunk );
 static bool view_chunk( struct object*, const char* );
 static void init_chunk_read( struct object*, struct chunk_read* );
 static bool read_chunk( struct chunk_read*, struct chunk* );
-static void view_all_chunks( struct object* );
+static void show_object( struct object* object );
+static void show_all_chunks( struct object* object );
+static void show_dummy_directory( struct object* object );
 
 static struct {
    const char* name;
@@ -928,7 +931,7 @@ int main( int argc, char* argv[] ) {
       }
    }
    else {
-      view_all_chunks( &object ); 
+      show_object( &object ); 
       result = EXIT_SUCCESS;
    }
    deinit_data:
@@ -991,7 +994,8 @@ void init_object( struct object* object, const char* data, int size ) {
    object->data = data;
    object->size = size;
    object->format = FORMAT_UNKNOWN;
-   object->chunk_offset = header.offset;
+   object->directory_offset = header.offset;
+   object->chunk_offset = object->directory_offset;
    object->indirect_format = false;
    object->small_code = false;
    if ( memcmp( header.id, "ACSE", 4 ) == 0 ) {
@@ -2096,11 +2100,49 @@ bool read_chunk( struct chunk_read* read, struct chunk* chunk ) {
    }
 }
 
-void view_all_chunks( struct object* object ) {
+static void show_object( struct object* object ) {
+   show_all_chunks( object );
+   show_dummy_directory( object );
+}
+
+static void show_all_chunks( struct object* object ) {
    struct chunk chunk;
    struct chunk_read read;
    init_chunk_read( object, &read );
    while ( read_chunk( &read, &chunk ) ) {
       show_chunk( object, &chunk, true );
    }
+}
+
+static void show_dummy_directory( struct object* object ) {
+   const char* data = object->data + object->directory_offset;
+   printf( "== dummy directory (offset=%d)\n", object->directory_offset );
+   // Scripts.
+   int count = 0;
+   memcpy( &count, data, sizeof( count ) );
+   data += sizeof( count );
+   printf( "total-scripts=%d\n", count );
+   for ( int i = 0; i < count; ++i ) {
+      struct {
+         int number;
+         int offset;
+         int num_param;
+      } entry;
+      memcpy( &entry, data, sizeof( entry ) );
+      data += sizeof( entry );
+      printf( "script=%d ", entry.number );
+      // const char* name = get_script_type_name( type );
+      // if ( name ) {
+      //   printf( "type=%s ", name );
+      //}
+      //else {
+      //   printf( "type=unknown:%d ", type );
+      //}
+      printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
+      // show_pcode( object, offset, end_offset - offset );
+   }
+   // Strings.
+   memcpy( &count, data, sizeof( count ) );
+   data += sizeof( count );
+   printf( "total-strings=%d\n", count );
 }
