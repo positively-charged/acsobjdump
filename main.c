@@ -448,6 +448,7 @@ struct chunk {
       CHUNK_STRE,
       CHUNK_SARY,
       CHUNK_FARY,
+      CHUNK_ALIB,
    } type;
 };
 
@@ -480,6 +481,7 @@ static void show_sflg( struct chunk* );
 static void show_svct( struct chunk* );
 static void show_strl( struct chunk*, bool );
 static void show_sary_fary( struct chunk* chunk );
+static void show_alib( struct chunk* chunk );
 static bool view_chunk( struct object*, const char* );
 static void init_chunk_read( struct object*, struct chunk_read* );
 static bool read_chunk( struct chunk_read*, struct chunk* );
@@ -1086,6 +1088,9 @@ bool show_chunk( struct object* object, struct chunk* chunk,
       case CHUNK_SARY:
       case CHUNK_FARY:
          show_sary_fary( chunk );
+         break;
+      case CHUNK_ALIB:
+         show_alib( chunk );
          break;
       default:
          printf( "chunk not supported\n" ); 
@@ -1924,6 +1929,10 @@ static void show_sary_fary( struct chunk* chunk ) {
    }
 }
 
+static void show_alib( struct chunk* chunk ) {
+   printf( "library=yes\n" );
+}
+
 int get_chunk_type( const char* name ) {
    char buff[ 5 ];
    memcpy( buff, name, 4 );
@@ -1953,6 +1962,7 @@ int get_chunk_type( const char* name ) {
       { "STRE", CHUNK_STRE },
       { "SARY", CHUNK_SARY },
       { "FARY", CHUNK_FARY },
+      { "ALIB", CHUNK_ALIB },
       { "", CHUNK_UNKNOWN }
    };
    int i = 0;
