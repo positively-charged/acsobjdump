@@ -446,6 +446,8 @@ struct chunk {
       CHUNK_SVCT,
       CHUNK_STRL,
       CHUNK_STRE,
+      CHUNK_SARY,
+      CHUNK_FARY,
    } type;
 };
 
@@ -475,8 +477,9 @@ static void show_mexp( struct chunk* );
 static void show_sptr( struct object*, struct chunk* );
 static const char* get_script_type_name( int );
 static void show_sflg( struct chunk* );
-static void show_strl( struct chunk*, bool );
 static void show_svct( struct chunk* );
+static void show_strl( struct chunk*, bool );
+static void show_sary_fary( struct chunk* chunk );
 static bool view_chunk( struct object*, const char* );
 static void init_chunk_read( struct object*, struct chunk_read* );
 static bool read_chunk( struct chunk_read*, struct chunk* );
@@ -1029,7 +1032,8 @@ void list_chunks( struct object* object ) {
    }
 }
 
-bool show_chunk( struct object* object, struct chunk* chunk, bool show_contents ) {
+bool show_chunk( struct object* object, struct chunk* chunk,
+   bool show_contents ) {
    printf( "-- %s (%d)\n", chunk->name, chunk->size );
    if ( show_contents ) {
       switch ( chunk->type ) {
@@ -1078,6 +1082,10 @@ bool show_chunk( struct object* object, struct chunk* chunk, bool show_contents 
          break;
       case CHUNK_STRE:
          show_strl( chunk, true );
+         break;
+      case CHUNK_SARY:
+      case CHUNK_FARY:
+         show_sary_fary( chunk );
          break;
       default:
          printf( "chunk not supported\n" ); 
@@ -1899,6 +1907,23 @@ void show_strl( struct chunk* chunk, bool is_encoded ) {
    }
 }
 
+static void show_sary_fary( struct chunk* chunk ) {
+   const char* data = chunk->data;
+   short index = 0;
+   memcpy( &index, data, sizeof( index ) );
+   data += sizeof( index );
+   int size = 0; // Size of a script array.
+   int array_count = ( chunk->size - sizeof( index ) ) / sizeof( size );
+   printf( "%s=%d total-script-arrays=%d\n",
+      ( chunk->type == CHUNK_FARY ) ? "function" : "script",
+      index, array_count );
+   for ( int i = 0; i < array_count; ++i ) {
+      memcpy( &size, data, sizeof( size ) );
+      data += sizeof( size );
+      printf( "array-index=%d array-size=%d\n", i, size );
+   }
+}
+
 int get_chunk_type( const char* name ) {
    char buff[ 5 ];
    memcpy( buff, name, 4 );
@@ -1926,6 +1951,8 @@ int get_chunk_type( const char* name ) {
       { "SVCT", CHUNK_SVCT },
       { "STRL", CHUNK_STRL },
       { "STRE", CHUNK_STRE },
+      { "SARY", CHUNK_SARY },
+      { "FARY", CHUNK_FARY },
       { "", CHUNK_UNKNOWN }
    };
    int i = 0;
