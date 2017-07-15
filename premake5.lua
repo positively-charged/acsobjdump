@@ -18,6 +18,8 @@ solution 'acsobjdump'
    project 'acsobjdump'
       location 'build'
       kind 'ConsoleApp'
+      targetdir '.'
+      targetname 'acsobjdump'
 
       files {
          '*.c',
