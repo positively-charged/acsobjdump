@@ -444,6 +444,7 @@ struct chunk {
       CHUNK_SPTR,
       CHUNK_SFLG,
       CHUNK_SVCT,
+      CHUNK_SNAM,
       CHUNK_STRL,
       CHUNK_STRE,
       CHUNK_SARY,
@@ -479,6 +480,7 @@ static void show_sptr( struct object*, struct chunk* );
 static const char* get_script_type_name( int );
 static void show_sflg( struct chunk* );
 static void show_svct( struct chunk* );
+static void show_snam( struct chunk* chunk );
 static void show_strl( struct chunk*, bool );
 static void show_sary_fary( struct chunk* chunk );
 static void show_alib( struct chunk* chunk );
@@ -1078,6 +1080,9 @@ bool show_chunk( struct object* object, struct chunk* chunk,
          break;
       case CHUNK_SVCT:
          show_svct( chunk );
+         break;
+      case CHUNK_SNAM:
+         show_snam( chunk );
          break;
       case CHUNK_STRL:
          show_strl( chunk, false );
@@ -1866,6 +1871,22 @@ void show_svct( struct chunk* chunk ) {
    }
 }
 
+static void show_snam( struct chunk* chunk ) {
+   const char* data = chunk->data;
+   int total_names = 0;
+   memcpy( &total_names, data, sizeof( total_names ) );
+   data += sizeof( total_names );
+   printf( "total-named-scripts=%d\n", total_names );
+   for ( int i = 0; i < total_names; ++i ) {
+      int offset = 0;
+      memcpy( &offset, data, sizeof( offset ) );
+      data += sizeof( offset );
+      enum { INITIAL_SCRIPT_NUMBER = -1 }; // For named scripts.
+      printf( "script-number=%d script-name=\"%s\"\n",
+         INITIAL_SCRIPT_NUMBER - i, chunk->data + offset );
+   }
+}
+
 void show_strl( struct chunk* chunk, bool is_encoded ) {
    const char* data = chunk->data;
    data += sizeof( int );
@@ -1958,6 +1979,7 @@ int get_chunk_type( const char* name ) {
       { "SPTR", CHUNK_SPTR },
       { "SFLG", CHUNK_SFLG },
       { "SVCT", CHUNK_SVCT },
+      { "SNAM", CHUNK_SNAM },
       { "STRL", CHUNK_STRL },
       { "STRE", CHUNK_STRE },
       { "SARY", CHUNK_SARY },
