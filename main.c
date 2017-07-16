@@ -1,7 +1,52 @@
 /*
 
-   Displays the contents of an ACSE or ACSe object file. The Hexen format is
-   not yet supported.
+   Displays the contents of an ACS object file. The following formats are
+   supported: ACS0; ACSE and ACSe, both the direct and indirect formats.
+
+   --------------------------------------------------------------------------
+
+   Below is an outline of the formats of an ACS object file. The ellipsis (...)
+   indicates that the sections might not be directly connected; that is, other
+   data can appear between the sections.
+
+   Sections of an ACS0 object file:
+     <header>
+       ...  // ACC and BCC put script code and string content here.
+     <script-directory>
+     <string-directory>
+       ...  // This area here can potentially contain script code and string
+            // content, so we need to take this area into consideration.
+
+   Sections of an ACSE/ACSe object file:
+     <header>
+       ...  // ACC and BCC put the script and function code here.
+     <chunk-section>  // ACC and BCC put the chunks here.
+       ...  // This area here can potentially contain script and function code
+            // or some other data, so we need to take this area into
+            // consideration.
+
+   An indirect ACSE/ACSe object file disguises itself as an ACS0 file and hides
+   the real header somewhere in the object file. Sections of an indirect
+   ACSE/ACSe object file:
+     <header>
+       ...  // ACC and BCC put the script code here.
+     <chunk-section>  // ACC and BCC put the chunks here. This section does not
+                      // necessarily need to appear here. Nothing is stopping
+                      // the compiler from putting the chunk section at the end
+                      // of the object file.
+       ...  // ACC and BCC do not put anything here; that is, the chunk section
+            // is followed by the real header.
+     <real-header>  // The real header is reversed: the chunk-section offset
+                    // is the first field, followed by the format name; that
+                    // is, in the object file, the chuck-section offset field
+                    // has a lower address than the format name field. The real
+                    // header is read starting at the back: the format name is
+                    // read first, followed by the chunk-section offset.
+     <dummy-script-directory>  // The dummy sections are not used and are only
+     <dummy-string-directory>  // there to satisfy old wad-editing tools.
+       ...  // This area here can potentially contain script and function code
+            // or some other data, so we need to take this area into
+            // consideration.
 
 */
 
@@ -411,10 +456,12 @@ struct object {
    int size;
    enum {
       FORMAT_UNKNOWN,
+      FORMAT_ZERO,
       FORMAT_BIG_E,
       FORMAT_LITTLE_E,
    } format;
    int directory_offset;
+   int string_offset;
    int chunk_offset;
    bool indirect_format;
    bool small_code;
@@ -461,11 +508,17 @@ struct chunk_read {
    int pos;
 };
 
+struct acs0_script_entry {
+   int number;
+   int offset;
+   int num_param;
+};
+
 static bool read_options( struct options*, int, char** );
 static void init_object( struct object*, const char*, int );
 static void init_chunk( struct chunk*, const char* );
 static int get_chunk_type( const char* );
-static void show_pcode( struct object*, int, int );
+static void show_pcode( struct object* object, int offset, int code_size );
 static void list_chunks( struct object* );
 static bool show_chunk( struct object*, struct chunk*, bool );
 static void show_aray( struct chunk* );
@@ -485,7 +538,9 @@ static const char* get_script_type_name( int );
 static void show_sflg( struct chunk* );
 static void show_svct( struct chunk* );
 static void show_snam( struct chunk* chunk );
-static void show_strl( struct chunk*, bool );
+static void show_strl( struct chunk*, bool is_encoded );
+static void show_string( int index, int offset, const char* value,
+   bool is_encoded );
 static void show_sary_fary( struct chunk* chunk );
 static void show_alib( struct chunk* chunk );
 static bool view_chunk( struct object*, const char* );
@@ -494,6 +549,11 @@ static bool read_chunk( struct chunk_read*, struct chunk* );
 static void show_object( struct object* object );
 static void show_all_chunks( struct object* object );
 static void show_dummy_directory( struct object* object );
+static void show_acs0_object( struct object* object );
+static void determine_acs0_offsets( struct object* object );
+static void read_scripts( struct object* object );
+static int determine_acs0_code_size( struct object* object, int offset );
+static void read_strings( struct object* object );
 
 static struct {
    const char* name;
@@ -912,6 +972,9 @@ int main( int argc, char* argv[] ) {
    case FORMAT_LITTLE_E:
       format = "ACSe";
       break;
+   case FORMAT_ZERO:
+      format = "ACS0";
+      break;
    default:
       printf( "error: unsupported format\n" );
       goto deinit_data;
@@ -931,7 +994,7 @@ int main( int argc, char* argv[] ) {
       }
    }
    else {
-      show_object( &object ); 
+      show_object( &object );
       result = EXIT_SUCCESS;
    }
    deinit_data:
@@ -995,27 +1058,28 @@ void init_object( struct object* object, const char* data, int size ) {
    object->size = size;
    object->format = FORMAT_UNKNOWN;
    object->directory_offset = header.offset;
+   object->string_offset = 0;
    object->chunk_offset = object->directory_offset;
    object->indirect_format = false;
    object->small_code = false;
-   if ( memcmp( header.id, "ACSE", 4 ) == 0 ) {
-      object->format = FORMAT_BIG_E;
-   }
-   else if ( memcmp( header.id, "ACSe", 4 ) == 0 ) {
-      object->format = FORMAT_LITTLE_E;
+   if ( memcmp( header.id, "ACSE", 4 ) == 0 ||
+      memcmp( header.id, "ACSe", 4 ) == 0 ) {
+      object->format = ( header.id[ 3 ] == 'E' ) ?
+         FORMAT_BIG_E : FORMAT_LITTLE_E;
+      object->chunk_offset = object->directory_offset;
    }
    else if ( memcmp( header.id, "ACS\0", 4 ) == 0 ) {
       const char* format = data + header.offset - 4;
-      if ( memcmp( format, "ACSE", 4 ) == 0 ) {
-         object->format = FORMAT_BIG_E;
-      }
-      else if ( memcmp( format, "ACSe", 4 ) == 0 ) {
-         object->format = FORMAT_LITTLE_E;
-      }
-      if ( object->format != FORMAT_UNKNOWN ) {
+      if ( memcmp( format, "ACSE", 4 ) == 0 ||
+         memcmp( format, "ACSe", 4 ) == 0 ) {
+         object->format = ( header.id[ 3 ] == 'E' ) ?
+            FORMAT_BIG_E : FORMAT_LITTLE_E;
          memcpy( &object->chunk_offset, format - sizeof( int ),
             sizeof( int ) );
          object->indirect_format = true;
+      }
+      else {
+         object->format = FORMAT_ZERO;
       }
    }
    if ( object->format == FORMAT_LITTLE_E ) {
@@ -1479,7 +1543,7 @@ const char* get_script_type_name( int type ) {
    }
 }
 
-void show_pcode( struct object* object, int offset, int code_size ) {
+static void show_pcode( struct object* object, int offset, int code_size ) {
    const char* data_start = object->data + offset;
    const char* data = data_start;
    while ( data < data_start + code_size ) {
@@ -1949,7 +2013,7 @@ static void show_snam( struct chunk* chunk ) {
    }
 }
 
-void show_strl( struct chunk* chunk, bool is_encoded ) {
+static void show_strl( struct chunk* chunk, bool is_encoded ) {
    const char* data = chunk->data;
    data += sizeof( int );
    int count = 0;
@@ -1961,38 +2025,43 @@ void show_strl( struct chunk* chunk, bool is_encoded ) {
       int offset = 0;
       memcpy( &offset, data, sizeof( int ) );
       data += sizeof( int );
-      printf( "[%d] offset=%d", i, offset );
-      printf( " " );
-      printf( "\"" );
-      const char* ch = chunk->data + offset;
-      int k = 0;
-      while ( true ) {
-         char decoded = *ch;
-         if ( is_encoded ) {
-            decoded = decoded ^ ( offset * 157135 + k / 2 );
-            ++k;
-         }
-         if ( ! decoded ) {
-            break;
-         }
-         // Make the output of some characters more pretty.
-         if ( decoded == '"' ) {
-            printf( "\\\"" );
-         }
-         else if ( decoded == '\r' ) {
-            printf( "\\r" );
-         }
-         else if ( decoded == '\n' ) {
-            printf( "\\n" );
-         }
-         else {
-            printf( "%c", decoded );
-         }
-         ++ch;
-      }
-      printf( "\"" );
-      printf( "\n" );
+      show_string( i, offset, chunk->data + offset, is_encoded );
    }
+}
+
+static void show_string( int index, int offset, const char* value,
+   bool is_encoded ) {
+   printf( "[%d] offset=%d", index, offset );
+   printf( " " );
+   printf( "\"" );
+   const char* ch = value;
+   int k = 0;
+   while ( true ) {
+      char decoded = *ch;
+      if ( is_encoded ) {
+         decoded = decoded ^ ( offset * 157135 + k / 2 );
+         ++k;
+      }
+      if ( ! decoded ) {
+         break;
+      }
+      // Make the output of some characters more pretty.
+      if ( decoded == '"' ) {
+         printf( "\\\"" );
+      }
+      else if ( decoded == '\r' ) {
+         printf( "\\r" );
+      }
+      else if ( decoded == '\n' ) {
+         printf( "\\n" );
+      }
+      else {
+         printf( "%c", decoded );
+      }
+      ++ch;
+   }
+   printf( "\"" );
+   printf( "\n" );
 }
 
 static void show_sary_fary( struct chunk* chunk ) {
@@ -2101,8 +2170,18 @@ bool read_chunk( struct chunk_read* read, struct chunk* chunk ) {
 }
 
 static void show_object( struct object* object ) {
-   show_all_chunks( object );
-   show_dummy_directory( object );
+   switch ( object->format ) {
+   case FORMAT_BIG_E:
+   case FORMAT_LITTLE_E:
+      show_all_chunks( object );
+      show_dummy_directory( object );
+      break;
+   case FORMAT_ZERO:
+      show_acs0_object( object );
+      break;
+   default:
+      break;
+   }
 }
 
 static void show_all_chunks( struct object* object ) {
@@ -2145,4 +2224,94 @@ static void show_dummy_directory( struct object* object ) {
    memcpy( &count, data, sizeof( count ) );
    data += sizeof( count );
    printf( "total-strings=%d\n", count );
+}
+
+static void show_acs0_object( struct object* object ) {
+   determine_acs0_offsets( object );
+   read_scripts( object );
+   read_strings( object );
+}
+
+static void determine_acs0_object_offsets( struct object* object ) {
+   const char* data = object->data + object->directory_offset;
+   int total_scripts = 0;
+   memcpy( &total_scripts, data, sizeof( total_scripts ) );
+   object->string_offset = object->directory_offset + sizeof( total_scripts ) +
+      total_scripts * sizeof( struct acs0_script_entry );
+}
+
+static void read_scripts( struct object* object ) {
+   const char* data = object->data + object->directory_offset;
+   int total_scripts = 0;
+   memcpy( &total_scripts, data, sizeof( total_scripts ) );
+   data += sizeof( total_scripts );
+   printf( "total-scripts=%d\n", total_scripts );
+   for ( int i = 0; i < total_scripts; ++i ) {
+      struct acs0_script_entry entry;
+      memcpy( &entry, data, sizeof( entry ) );
+      data += sizeof( entry );
+      int number = entry.number % 1000;
+      int type = entry.number / 1000;
+      printf( "script=%d ", number );
+      const char* name = get_script_type_name( type );
+      if ( name ) {
+         printf( "type=%s ", name );
+      }
+      else {
+         printf( "type=unknown:%d ", type );
+      }
+      printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
+      show_pcode( object, entry.offset,
+         determine_acs0_code_size( object, entry.offset ) );
+   }
+}
+
+static int determine_acs0_code_size( struct object* object, int offset ) {
+   const char* data = object->data + object->directory_offset;
+   // The starting offset of an adjacent script can be used as the end offset
+   // of the current script.
+   int count = 0;
+   memcpy( &count, data, sizeof( count ) );
+   data += sizeof( count );
+   int end_offset = object->size;
+   for ( int i = 0; i < count; ++i ) {
+      struct acs0_script_entry entry;
+      memcpy( &entry, data, sizeof( entry ) );
+      data += sizeof( entry );
+      if ( entry.offset > offset && entry.offset < end_offset ) {
+         end_offset = entry.offset;
+      }
+   }
+   // The offset of the first string can be used as the end offset.
+   data = object->data + object->string_offset;
+   memcpy( &count, data, sizeof( count ) );
+   data += sizeof( count );
+   for ( int i = 0; i < count; ++i ) {
+      int string_offset = 0;
+      memcpy( &string_offset, data, sizeof( string_offset ) );
+      data += sizeof( string_offset );
+      if ( string_offset > offset && string_offset < end_offset ) {
+         end_offset = string_offset;
+      }
+   }
+   // For the last script, the script directory offset can be used as the end
+   // offset.
+   if ( object->directory_offset < end_offset ) {
+      end_offset = object->directory_offset;
+   }
+   return end_offset - offset;
+}
+
+static void read_strings( struct object* object ) {
+   const char* data = object->data + object->string_offset;
+   int total_strings = 0;
+   memcpy( &total_strings, data, sizeof( total_strings ) );
+   data += sizeof( total_strings );
+   printf( "total-strings=%d\n", total_strings );
+   for ( int i = 0; i < total_strings; ++i ) {
+      int offset = 0;
+      memcpy( &offset, data, sizeof( offset ) );
+      data += sizeof( offset );
+      show_string( i, offset, object->data + offset, false );
+   }
 }
