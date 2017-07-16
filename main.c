@@ -57,7 +57,7 @@
 #include <ctype.h>
 
 enum {
-   PCD_NONE,
+   PCD_NOP,
    PCD_TERMINATE,
    PCD_SUSPEND,
    PCD_PUSHNUMBER,
@@ -562,7 +562,7 @@ static struct {
    const char* name;
    int num_args;
 } g_pcodes[] = {
-   { "none", 0 },
+   { "nop", 0 },
    { "terminate", 0 },
    { "suspend", 0 },
    { "pushnumber", 1 },
