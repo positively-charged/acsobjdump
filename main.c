@@ -462,6 +462,7 @@ struct object {
    } format;
    int directory_offset;
    int string_offset;
+   int real_header_offset;
    int chunk_offset;
    bool indirect_format;
    bool small_code;
@@ -515,7 +516,8 @@ struct acs0_script_entry {
 };
 
 static bool read_options( struct options*, int, char** );
-static void init_object( struct object*, const char*, int );
+static void init_object( struct object* object, const char* data, int size );
+static void determine_format( struct object* object );
 static void init_chunk( struct chunk*, const char* );
 static int get_chunk_type( const char* );
 static void show_pcode( struct object* object, int offset, int code_size );
@@ -547,6 +549,7 @@ static bool view_chunk( struct object*, const char* );
 static void init_chunk_read( struct object*, struct chunk_read* );
 static bool read_chunk( struct chunk_read*, struct chunk* );
 static void show_object( struct object* object );
+static void show_acse_object( struct object* object );
 static void show_all_chunks( struct object* object );
 static void show_dummy_directory( struct object* object );
 static void show_acs0_object( struct object* object );
@@ -965,6 +968,7 @@ int main( int argc, char* argv[] ) {
    fclose( fh );
    struct object object;
    init_object( &object, data, size );
+   determine_format( &object );
    const char* format = "ACSE";
    switch ( object.format ) {
    case FORMAT_BIG_E:
@@ -1051,17 +1055,22 @@ bool read_options( struct options* options, int argc, char** argv ) {
    }
 }
 
-void init_object( struct object* object, const char* data, int size ) {
-   struct header header;
-   memcpy( &header, data, sizeof( header ) );
+static void init_object( struct object* object, const char* data, int size ) {
    object->data = data;
    object->size = size;
    object->format = FORMAT_UNKNOWN;
-   object->directory_offset = header.offset;
+   object->directory_offset = 0;
    object->string_offset = 0;
-   object->chunk_offset = object->directory_offset;
+   object->real_header_offset = 0;
+   object->chunk_offset = 0;
    object->indirect_format = false;
    object->small_code = false;
+}
+
+static void determine_format( struct object* object ) {
+   struct header header;
+   memcpy( &header, object->data, sizeof( header ) );
+   object->directory_offset = header.offset;
    if ( memcmp( header.id, "ACSE", 4 ) == 0 ||
       memcmp( header.id, "ACSe", 4 ) == 0 ) {
       object->format = ( header.id[ 3 ] == 'E' ) ?
@@ -1069,13 +1078,15 @@ void init_object( struct object* object, const char* data, int size ) {
       object->chunk_offset = object->directory_offset;
    }
    else if ( memcmp( header.id, "ACS\0", 4 ) == 0 ) {
-      const char* format = data + header.offset - 4;
-      if ( memcmp( format, "ACSE", 4 ) == 0 ||
-         memcmp( format, "ACSe", 4 ) == 0 ) {
-         object->format = ( header.id[ 3 ] == 'E' ) ?
+      const char* data = object->data + header.offset - 4;
+      if ( memcmp( data, "ACSE", 4 ) == 0 || memcmp( data, "ACSe", 4 ) == 0 ) {
+         object->format = ( data[ 3 ] == 'E' ) ?
             FORMAT_BIG_E : FORMAT_LITTLE_E;
-         memcpy( &object->chunk_offset, format - sizeof( int ),
-            sizeof( int ) );
+         int chunk_offset = 0;
+         data -= sizeof( chunk_offset );
+         memcpy( &chunk_offset, data, sizeof( chunk_offset ) );
+         object->real_header_offset = data - object->data; 
+         object->chunk_offset = chunk_offset;
          object->indirect_format = true;
       }
       else {
@@ -2154,7 +2165,8 @@ bool view_chunk( struct object* object, const char* name ) {
 
 void init_chunk_read( struct object* object, struct chunk_read* read ) {
    read->data = object->data;
-   read->data_size = object->size;
+   read->data_size = ( object->indirect_format ) ?
+      object->real_header_offset : object->size;
    read->pos = object->chunk_offset;
 }
 
@@ -2173,8 +2185,7 @@ static void show_object( struct object* object ) {
    switch ( object->format ) {
    case FORMAT_BIG_E:
    case FORMAT_LITTLE_E:
-      show_all_chunks( object );
-      show_dummy_directory( object );
+      show_acse_object( object );
       break;
    case FORMAT_ZERO:
       show_acs0_object( object );
@@ -2182,6 +2193,11 @@ static void show_object( struct object* object ) {
    default:
       break;
    }
+}
+
+static void show_acse_object( struct object* object ) {
+   show_all_chunks( object );
+   show_dummy_directory( object );
 }
 
 static void show_all_chunks( struct object* object ) {
