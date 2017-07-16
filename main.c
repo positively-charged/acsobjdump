@@ -2232,7 +2232,7 @@ static void show_acs0_object( struct object* object ) {
    read_strings( object );
 }
 
-static void determine_acs0_object_offsets( struct object* object ) {
+static void determine_acs0_offsets( struct object* object ) {
    const char* data = object->data + object->directory_offset;
    int total_scripts = 0;
    memcpy( &total_scripts, data, sizeof( total_scripts ) );
