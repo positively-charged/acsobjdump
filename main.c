@@ -1120,7 +1120,8 @@ void list_chunks( struct object* object ) {
 
 bool show_chunk( struct object* object, struct chunk* chunk,
    bool show_contents ) {
-   printf( "-- %s (%d)\n", chunk->name, chunk->size );
+   printf( "-- %s (size=%d offset=%zd)\n", chunk->name, chunk->size,
+      chunk->data - object->data );
    if ( show_contents ) {
       switch ( chunk->type ) {
       case CHUNK_ARAY:
