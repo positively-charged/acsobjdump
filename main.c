@@ -503,6 +503,11 @@ struct chunk {
    } type;
 };
 
+struct chunk_header {
+   char name[ 4 ];
+   int size;
+};
+
 struct chunk_read {
    const char* data;
    int data_size;
@@ -1120,12 +1125,12 @@ static void determine_format( struct object* object ) {
 }
 
 void init_chunk( struct chunk* chunk, const char* data ) {
-   memcpy( chunk->name, data, 4 );
-   chunk->name[ 4 ] = 0;
-   data += sizeof( int );
-   memcpy( &chunk->size, data, sizeof( int ) );
-   data += sizeof( int );
-   chunk->data = data;
+   struct chunk_header header;
+   memcpy( &header, data, sizeof( header ) );
+   memcpy( chunk->name, header.name, sizeof( header.name ) );
+   chunk->name[ sizeof( header.name ) ] = '\0';
+   chunk->size = header.size;
+   chunk->data = data + sizeof( header );
    chunk->type = get_chunk_type( chunk->name );
 }
 
@@ -1142,7 +1147,7 @@ void list_chunks( struct object* object ) {
 bool show_chunk( struct object* object, struct chunk* chunk,
    bool show_contents ) {
    printf( "-- %s (size=%d offset=%zd)\n", chunk->name, chunk->size,
-      chunk->data - object->data );
+      ( chunk->data - sizeof( struct chunk_header ) ) - object->data );
    if ( show_contents ) {
       switch ( chunk->type ) {
       case CHUNK_ARAY:
