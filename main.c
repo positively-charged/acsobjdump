@@ -1013,12 +1013,26 @@ int main( int argc, char* argv[] ) {
    }
    printf( "format: %s%s\n", format, indirect );
    if ( options.list_chunks ) {
-      list_chunks( &object );
-      result = EXIT_SUCCESS;
+      switch ( object.format ) {
+      case FORMAT_BIG_E:
+      case FORMAT_LITTLE_E:
+         list_chunks( &object );
+         result = EXIT_SUCCESS;
+         break;
+      default:
+         printf( "error: format does not support chunks\n" );
+      }
    }
    else if ( options.view_chunk ) {
-      if ( view_chunk( &object, options.view_chunk ) ) {
-         result = EXIT_SUCCESS;
+      switch ( object.format ) {
+      case FORMAT_BIG_E:
+      case FORMAT_LITTLE_E:
+         if ( view_chunk( &object, options.view_chunk ) ) {
+            result = EXIT_SUCCESS;
+         }
+         break;
+      default:
+         printf( "error: format does not support chunks\n" );
       }
    }
    else {
