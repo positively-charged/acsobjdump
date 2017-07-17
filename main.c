@@ -42,8 +42,8 @@
                     // has a lower address than the format name field. The real
                     // header is read starting at the back: the format name is
                     // read first, followed by the chunk-section offset.
-     <dummy-script-directory>  // The dummy sections are not used and are only
-     <dummy-string-directory>  // there to satisfy old wad-editing tools.
+     <script-directory>  // The directory sections are not used and are only
+     <string-directory>  // there to satisfy old wad-editing tools.
        ...  // This area here can potentially contain script and function code
             // or some other data, so we need to take this area into
             // consideration.
@@ -539,6 +539,8 @@ struct func_entry {
 static bool read_options( struct options*, int, char** );
 static void init_object( struct object* object, const char* data, int size );
 static void determine_format( struct object* object );
+static void determine_object_offsets( struct object* object );
+static bool script_directory_present( struct object* object );
 static void init_chunk( struct chunk*, const char* );
 static int get_chunk_type( const char* );
 static void show_pcode( struct object* object, int offset, int code_size );
@@ -559,7 +561,7 @@ static void show_mexp( struct chunk* );
 static void show_sptr( struct object* object, struct chunk* chunk );
 static void read_acse_script_entry( struct object* object, const char* data,
    struct common_acse_script_entry* common_entry );
-static int calc_acse_code_size( struct object* object, int offset );
+static int calc_code_size( struct object* object, int offset );
 static const char* get_script_type_name( int );
 static void show_sflg( struct chunk* );
 static void show_svct( struct chunk* );
@@ -575,14 +577,9 @@ static bool read_chunk( struct chunk_read*, struct chunk* );
 static bool find_chunk( struct object* object, const char* name,
    struct chunk* chunk );
 static void show_object( struct object* object );
-static void show_acse_object( struct object* object );
 static void show_all_chunks( struct object* object );
-static void show_dummy_directory( struct object* object );
-static void show_acs0_object( struct object* object );
-static void determine_acs0_offsets( struct object* object );
-static void read_scripts( struct object* object );
-static int calc_acs0_code_size( struct object* object, int offset );
-static void read_strings( struct object* object );
+static void show_script_directory( struct object* object );
+static void show_string_directory( struct object* object );
 
 static struct {
    const char* name;
@@ -995,6 +992,7 @@ int main( int argc, char* argv[] ) {
    struct object object;
    init_object( &object, data, size );
    determine_format( &object );
+   determine_object_offsets( &object );
    const char* format = "ACSE";
    switch ( object.format ) {
    case FORMAT_BIG_E:
@@ -1111,7 +1109,7 @@ static void determine_format( struct object* object ) {
          int chunk_offset = 0;
          data -= sizeof( chunk_offset );
          memcpy( &chunk_offset, data, sizeof( chunk_offset ) );
-         object->real_header_offset = data - object->data; 
+         object->real_header_offset = data - object->data;
          object->chunk_offset = chunk_offset;
          object->indirect_format = true;
       }
@@ -1121,6 +1119,32 @@ static void determine_format( struct object* object ) {
    }
    if ( object->format == FORMAT_LITTLE_E ) {
       object->small_code = true;
+   }
+}
+
+static void determine_object_offsets( struct object* object ) {
+   if ( script_directory_present( object ) ) {
+      const char* data = object->data + object->directory_offset;
+      int total_scripts = 0;
+      memcpy( &total_scripts, data, sizeof( total_scripts ) );
+      object->string_offset = object->directory_offset +
+         sizeof( total_scripts ) +
+         total_scripts * sizeof( struct acs0_script_entry );
+   }
+}
+
+static bool script_directory_present( struct object* object ) {
+   switch ( object->format ) {
+   case FORMAT_BIG_E:
+   case FORMAT_LITTLE_E:
+      // Only the indirect formats have the script and string directories
+      // because they are also ACS0 files. The direct formats do not have these
+      // directories.  
+      return ( object->indirect_format == true );
+   case FORMAT_ZERO:
+      return true;
+   default:
+      return false;
    }
 }
 
@@ -1353,7 +1377,7 @@ void show_func( struct object* object, struct chunk* chunk ) {
          entry.num_param, entry.size, entry.has_return, entry.offset );
       if ( entry.offset != 0 ) {
          show_pcode( object, entry.offset,
-            calc_acse_code_size( object, entry.offset ) );
+            calc_code_size( object, entry.offset ) );
       }
       else {
          printf( "(imported)\n" );
@@ -1437,7 +1461,7 @@ static void show_sptr( struct object* object, struct chunk* chunk ) {
       }
       printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
       show_pcode( object, entry.offset,
-         calc_acse_code_size( object, entry.offset ) );
+         calc_code_size( object, entry.offset ) );
    }
 }
 
@@ -1473,49 +1497,80 @@ static void read_acse_script_entry( struct object* object, const char* data,
    }
 }
 
-static int calc_acse_code_size( struct object* object, int offset ) {
-   // The starting offset of an adjacent script can be used as the end offset.
+static int calc_code_size( struct object* object, int offset ) {
    int end_offset = object->size;
-   struct chunk chunk;
-   if ( find_chunk( object, "SPTR", &chunk ) ) {
-      int size = 0;
-      while ( size < chunk.size ) {
-         struct common_acse_script_entry entry;
-         read_acse_script_entry( object, chunk.data + size, &entry );
-         size += entry.real_entry_size;
+   // The starting offset of an adjacent script can be used as the end offset.
+   if (
+      object->format == FORMAT_BIG_E ||
+      object->format == FORMAT_LITTLE_E ) {
+      struct chunk chunk;
+      if ( find_chunk( object, "SPTR", &chunk ) ) {
+         int size = 0;
+         while ( size < chunk.size ) {
+            struct common_acse_script_entry entry;
+            read_acse_script_entry( object, chunk.data + size, &entry );
+            size += entry.real_entry_size;
+            if ( entry.offset > offset && entry.offset < end_offset ) {
+               end_offset = entry.offset;
+            }
+         }
+      }
+      // The starting offset of a function can be used as the end offset.
+      if ( find_chunk( object, "FUNC", &chunk ) ) {
+         struct func_entry entry;
+         int total_funcs = chunk.size / sizeof( entry );
+         for ( int i = 0; i < total_funcs; ++i ) {
+            memcpy( &entry, chunk.data + i * sizeof( entry ),
+               sizeof( entry ) );
+            if ( entry.offset > offset && entry.offset < end_offset ) {
+               end_offset = entry.offset;
+            }
+         }
+      }
+   }
+   // The starting offset of a script in the script directory can be used as
+   // the end offset.
+   if ( script_directory_present( object ) ) {
+      const char* data = object->data + object->directory_offset;
+      int count = 0;
+      memcpy( &count, data, sizeof( count ) );
+      data += sizeof( count );
+      for ( int i = 0; i < count; ++i ) {
+         struct acs0_script_entry entry;
+         memcpy( &entry, data, sizeof( entry ) );
+         data += sizeof( entry );
          if ( entry.offset > offset && entry.offset < end_offset ) {
             end_offset = entry.offset;
          }
       }
-   }
-   // The starting offset of a function can be used as the end offset.
-   if ( find_chunk( object, "FUNC", &chunk ) ) {
-      struct func_entry entry;
-      int total_funcs = chunk.size / sizeof( entry );
-      for ( int i = 0; i < total_funcs; ++i ) {
-         memcpy( &entry, chunk.data + i * sizeof( entry ), sizeof( entry ) );
-         if ( entry.offset > offset && entry.offset < end_offset ) {
-            end_offset = entry.offset;
+      // The offset of a string in the string directory can be used as the end
+      // offset.
+      data = object->data + object->string_offset;
+      memcpy( &count, data, sizeof( count ) );
+      data += sizeof( count );
+      for ( int i = 0; i < count; ++i ) {
+         int string_offset = 0;
+         memcpy( &string_offset, data, sizeof( string_offset ) );
+         data += sizeof( string_offset );
+         if ( string_offset > offset && string_offset < end_offset ) {
+            end_offset = string_offset;
          }
       }
    }
-   // The starting offset of a dummy script can be used as the end offset.
-   const char* data = object->data + object->directory_offset;
-   int dummy_scripts = 0;
-   memcpy( &dummy_scripts, data, sizeof( dummy_scripts ) );
-   data += sizeof( dummy_scripts );
-   for ( int i = 0; i < dummy_scripts; ++i ) {
-      struct acs0_script_entry entry;
-      memcpy( &entry, data, sizeof( entry ) );
-      data += sizeof( entry );
-      if ( entry.offset > offset && entry.offset < end_offset ) {
-         end_offset = entry.offset;
-      }
-   }
-   // For the last script, the chuck section offset can be used as the end
+   // For the last script, the chunk section offset can be used as the end
    // offset.
-   if ( object->chunk_offset < end_offset ) {
-      end_offset = object->chunk_offset;
+   if (
+      object->format == FORMAT_BIG_E ||
+      object->format == FORMAT_LITTLE_E ) {
+      if ( object->chunk_offset < end_offset ) {
+         end_offset = object->chunk_offset;
+      }
+   }
+   // For the last script, the script directory offset can be used as the end
+   // offset.
+   if ( script_directory_present( object ) &&
+      object->directory_offset < end_offset ) {
+      end_offset = object->directory_offset;
    }
    return end_offset - offset;
 }
@@ -2175,9 +2230,9 @@ void init_chunk_read( struct object* object, struct chunk_read* read ) {
 }
 
 bool read_chunk( struct chunk_read* read, struct chunk* chunk ) {
-   if ( read->pos < read->data_size ) {
+   if ( read->pos + sizeof( struct chunk_header ) <= read->data_size ) {
       init_chunk( chunk, read->data + read->pos );
-      read->pos += sizeof( int ) * 2 + chunk->size;
+      read->pos += sizeof( struct chunk_header ) + chunk->size;
       return true;
    }
    else {
@@ -2201,19 +2256,15 @@ static void show_object( struct object* object ) {
    switch ( object->format ) {
    case FORMAT_BIG_E:
    case FORMAT_LITTLE_E:
-      show_acse_object( object );
-      break;
-   case FORMAT_ZERO:
-      show_acs0_object( object );
+      show_all_chunks( object );
       break;
    default:
       break;
    }
-}
-
-static void show_acse_object( struct object* object ) {
-   show_all_chunks( object );
-   show_dummy_directory( object );
+   if ( script_directory_present( object ) ) {
+      show_script_directory( object );
+      show_string_directory( object );
+   }
 }
 
 static void show_all_chunks( struct object* object ) {
@@ -2225,54 +2276,8 @@ static void show_all_chunks( struct object* object ) {
    }
 }
 
-static void show_dummy_directory( struct object* object ) {
-   const char* data = object->data + object->directory_offset;
-   printf( "== dummy directory (offset=%d)\n", object->directory_offset );
-   // Scripts.
-   int count = 0;
-   memcpy( &count, data, sizeof( count ) );
-   data += sizeof( count );
-   printf( "total-scripts=%d\n", count );
-   for ( int i = 0; i < count; ++i ) {
-      struct {
-         int number;
-         int offset;
-         int num_param;
-      } entry;
-      memcpy( &entry, data, sizeof( entry ) );
-      data += sizeof( entry );
-      printf( "script=%d ", entry.number );
-      // const char* name = get_script_type_name( type );
-      // if ( name ) {
-      //   printf( "type=%s ", name );
-      //}
-      //else {
-      //   printf( "type=unknown:%d ", type );
-      //}
-      printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
-      // show_pcode( object, offset, end_offset - offset );
-   }
-   // Strings.
-   memcpy( &count, data, sizeof( count ) );
-   data += sizeof( count );
-   printf( "total-strings=%d\n", count );
-}
-
-static void show_acs0_object( struct object* object ) {
-   determine_acs0_offsets( object );
-   read_scripts( object );
-   read_strings( object );
-}
-
-static void determine_acs0_offsets( struct object* object ) {
-   const char* data = object->data + object->directory_offset;
-   int total_scripts = 0;
-   memcpy( &total_scripts, data, sizeof( total_scripts ) );
-   object->string_offset = object->directory_offset + sizeof( total_scripts ) +
-      total_scripts * sizeof( struct acs0_script_entry );
-}
-
-static void read_scripts( struct object* object ) {
+static void show_script_directory( struct object* object ) {
+   printf( "== script directory (offset=%d)\n", object->directory_offset );
    const char* data = object->data + object->directory_offset;
    int total_scripts = 0;
    memcpy( &total_scripts, data, sizeof( total_scripts ) );
@@ -2294,47 +2299,12 @@ static void read_scripts( struct object* object ) {
       }
       printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
       show_pcode( object, entry.offset,
-         calc_acs0_code_size( object, entry.offset ) );
+         calc_code_size( object, entry.offset ) );
    }
 }
 
-static int calc_acs0_code_size( struct object* object, int offset ) {
-   const char* data = object->data + object->directory_offset;
-   // The starting offset of an adjacent script can be used as the end offset
-   // of the current script.
-   int count = 0;
-   memcpy( &count, data, sizeof( count ) );
-   data += sizeof( count );
-   int end_offset = object->size;
-   for ( int i = 0; i < count; ++i ) {
-      struct acs0_script_entry entry;
-      memcpy( &entry, data, sizeof( entry ) );
-      data += sizeof( entry );
-      if ( entry.offset > offset && entry.offset < end_offset ) {
-         end_offset = entry.offset;
-      }
-   }
-   // The offset of the first string can be used as the end offset.
-   data = object->data + object->string_offset;
-   memcpy( &count, data, sizeof( count ) );
-   data += sizeof( count );
-   for ( int i = 0; i < count; ++i ) {
-      int string_offset = 0;
-      memcpy( &string_offset, data, sizeof( string_offset ) );
-      data += sizeof( string_offset );
-      if ( string_offset > offset && string_offset < end_offset ) {
-         end_offset = string_offset;
-      }
-   }
-   // For the last script, the script directory offset can be used as the end
-   // offset.
-   if ( object->directory_offset < end_offset ) {
-      end_offset = object->directory_offset;
-   }
-   return end_offset - offset;
-}
-
-static void read_strings( struct object* object ) {
+static void show_string_directory( struct object* object ) {
+   printf( "== string directory (offset=%d)\n", object->string_offset );
    const char* data = object->data + object->string_offset;
    int total_strings = 0;
    memcpy( &total_strings, data, sizeof( total_strings ) );
