@@ -55,6 +55,19 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <limits.h>
+
+#define STATIC_ASSERT( ... ) \
+  STATIC_ASSERT_IMPL( __VA_ARGS__,, )
+#define STATIC_ASSERT_IMPL( cond, msg, ... ) \
+   extern int STATIC_ASSERT__##msg[ !! ( cond ) ]
+
+// Make sure the data types are of sizes we want.
+STATIC_ASSERT( CHAR_BIT == 8, CHAR_BIT_must_be_8 );
+STATIC_ASSERT( sizeof( char ) == 1, char_must_be_1_byte );
+STATIC_ASSERT( sizeof( short ) == 2, short_must_be_2_bytes );
+STATIC_ASSERT( sizeof( int ) == 4, int_must_be_4_bytes );
+STATIC_ASSERT( sizeof( long long ) == 8, long_long_must_be_8_bytes );
 
 enum {
    PCD_NOP,
