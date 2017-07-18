@@ -571,7 +571,7 @@ static bool run( struct options* options );
 static void init_viewer( struct viewer* viewer, struct options* options );
 static void deinit_viewer( struct viewer* viewer );
 static void read_object_file( struct viewer* viewer );
-static void read_object_file_data( struct viewer* viewer, FILE* fh );
+static bool read_object_file_data( struct viewer* viewer, FILE* fh );
 static bool perform_operation( struct viewer* viewer );
 static void init_object( struct object* object, const char* data, int size );
 static void determine_format( struct object* object );
@@ -1115,18 +1115,49 @@ static void read_object_file( struct viewer* viewer ) {
          "failed to open file: %s", viewer->options->file );
       bail( viewer );
    }
-   read_object_file_data( viewer, fh );
+   bool data_read = read_object_file_data( viewer, fh );
    fclose( fh );
+   if ( ! data_read ) {
+      bail( viewer );
+   }
 }
 
-static void read_object_file_data( struct viewer* viewer, FILE* fh ) {
+static bool read_object_file_data( struct viewer* viewer, FILE* fh ) {
    fseek( fh, 0, SEEK_END );
-   size_t size = ftell( fh );
-   rewind( fh );
-   unsigned char* data = malloc( sizeof( data[ 0 ] ) * size );
-   fread( data, sizeof( data[ 0 ] ), size, fh );
+   long tell_result = ftell( fh );
+   if ( ! ( tell_result >= 0 ) ) {
+      diag( viewer, DIAG_ERR,
+         "failed to get size of object file" );
+      return false;
+   }
+   int seek_result = fseek( fh, 0, SEEK_SET );
+   if ( seek_result != 0 ) {
+      diag( viewer, DIAG_ERR,
+         "failed to seek to beginning of object file" );
+      return false;
+   }
+   if ( ( tell_result - INT_MAX ) > 0 ) {
+      diag( viewer, DIAG_ERR,
+         "object file too big (object file is %ld bytes, but the maximum "
+         "supported object file size is %d bytes)", tell_result, INT_MAX );
+      return false;
+   }
+   int size = ( int ) tell_result;
+   // Plus one for a terminating NUL byte.
+   unsigned char* data = malloc( sizeof( data[ 0 ] ) * size + 1 );
+   size_t num_read = fread( data, sizeof( data[ 0 ] ), size, fh );
+   data[ size ] = 0;
    viewer->object_data = data;
    viewer->object_size = size;
+   bool success = false;
+   if ( num_read == size ) {
+      success = true;
+   }
+   else {
+      diag( viewer, DIAG_ERR,
+         "failed to read contents of object file" );
+   }
+   return success;
 }
 
 static bool perform_operation( struct viewer* viewer ) {
@@ -2443,6 +2474,7 @@ static void diag( struct viewer* viewer, int flags, const char* format, ... ) {
    va_start( args, format );
    vprintf( format, args );
    va_end( args );
+   printf( "\n" );
 }
 
 static void bail( struct viewer* viewer ) {
