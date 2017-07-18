@@ -536,7 +536,20 @@ struct func_entry {
    int offset;
 };
 
+struct viewer {
+   struct options* options;
+   unsigned char* object_data;
+   int object_size;
+}; 
+
+static void init_options( struct options* options );
 static bool read_options( struct options* options, int argc, char** argv );
+static bool run( struct options* options );
+static void init_viewer( struct viewer* viewer, struct options* options );
+static void deinit_viewer( struct viewer* viewer );
+static bool read_object_file( struct viewer* viewer );
+static void read_object_file_data( struct viewer* viewer, FILE* fh );
+static bool run_operation( struct viewer* viewer );
 static void init_object( struct object* object, const char* data, int size );
 static void determine_format( struct object* object );
 static void determine_object_offsets( struct object* object );
@@ -976,80 +989,23 @@ static struct {
 int main( int argc, char* argv[] ) {
    int result = EXIT_FAILURE;
    struct options options;
-   if ( ! read_options( &options, argc, argv ) ) {
-      goto finish;
-   }
-   FILE* fh = fopen( options.file, "rb" );
-   if ( ! fh ) {
-      printf( "error: failed to open file: %s\n", options.file );
-      goto finish;
-   }
-   fseek( fh, 0, SEEK_END );
-   size_t size = ftell( fh );
-   rewind( fh );
-   char* data = malloc( sizeof( char ) * size );
-   fread( data, sizeof( char ), size, fh );
-   fclose( fh );
-   struct object object;
-   init_object( &object, data, size );
-   determine_format( &object );
-   determine_object_offsets( &object );
-   const char* format = "ACSE";
-   switch ( object.format ) {
-   case FORMAT_BIG_E:
-      break;
-   case FORMAT_LITTLE_E:
-      format = "ACSe";
-      break;
-   case FORMAT_ZERO:
-      format = "ACS0";
-      break;
-   default:
-      printf( "error: unsupported format\n" );
-      goto deinit_data;
-   }
-   const char* indirect = "";
-   if ( object.indirect_format ) {
-      indirect = " (indirect)";
-   }
-   printf( "format: %s%s\n", format, indirect );
-   if ( options.list_chunks ) {
-      switch ( object.format ) {
-      case FORMAT_BIG_E:
-      case FORMAT_LITTLE_E:
-         list_chunks( &object );
+   init_options( &options );
+   if ( read_options( &options, argc, argv ) ) {
+      bool success = run( &options );
+      if ( success ) {
          result = EXIT_SUCCESS;
-         break;
-      default:
-         printf( "error: format does not support chunks\n" );
       }
    }
-   else if ( options.view_chunk ) {
-      switch ( object.format ) {
-      case FORMAT_BIG_E:
-      case FORMAT_LITTLE_E:
-         if ( view_chunk( &object, options.view_chunk ) ) {
-            result = EXIT_SUCCESS;
-         }
-         break;
-      default:
-         printf( "error: format does not support chunks\n" );
-      }
-   }
-   else {
-      show_object( &object );
-      result = EXIT_SUCCESS;
-   }
-   deinit_data:
-   free( data );
-   finish:
    return result;
 }
 
-static bool read_options( struct options* options, int argc, char** argv ) {
+static void init_options( struct options* options ) {
    options->file = NULL;
    options->view_chunk = NULL;
    options->list_chunks = false;
+}
+
+static bool read_options( struct options* options, int argc, char** argv ) {
    if ( argc > 1 ) {
       int i = 1;
       while ( argv[ i ] && argv[ i ][ 0 ] == '-' ) {
@@ -1092,6 +1048,105 @@ static bool read_options( struct options* options, int argc, char** argv ) {
       );
       return false;
    }
+}
+
+static bool run( struct options* options ) {
+   bool success = false;
+   struct viewer viewer;
+   init_viewer( &viewer, options );
+   if ( read_object_file( &viewer ) ) {
+      success = run_operation( &viewer );
+   }
+   deinit_viewer( &viewer );
+   return success;
+}
+
+static void init_viewer( struct viewer* viewer, struct options* options ) {
+   viewer->options = options;
+   viewer->object_data = NULL;
+   viewer->object_size = 0;
+}
+
+static void deinit_viewer( struct viewer* viewer ) {
+   if ( viewer->object_data ) {
+      free( viewer->object_data );
+   }
+}
+
+static bool read_object_file( struct viewer* viewer ) {
+   FILE* fh = fopen( viewer->options->file, "rb" );
+   if ( ! fh ) {
+      printf( "error: failed to open file: %s\n", viewer->options->file );
+      return false;
+   }
+   read_object_file_data( viewer, fh );
+   fclose( fh );
+   return true;
+}
+
+static void read_object_file_data( struct viewer* viewer, FILE* fh ) {
+   fseek( fh, 0, SEEK_END );
+   size_t size = ftell( fh );
+   rewind( fh );
+   unsigned char* data = malloc( sizeof( data[ 0 ] ) * size );
+   fread( data, sizeof( data[ 0 ] ), size, fh );
+   viewer->object_data = data;
+   viewer->object_size = size;
+}
+
+static bool run_operation( struct viewer* viewer ) {
+   struct object object;
+   init_object( &object, ( char* ) viewer->object_data, viewer->object_size );
+   determine_format( &object );
+   determine_object_offsets( &object );
+   const char* format = "ACSE";
+   switch ( object.format ) {
+   case FORMAT_BIG_E:
+      break;
+   case FORMAT_LITTLE_E:
+      format = "ACSe";
+      break;
+   case FORMAT_ZERO:
+      format = "ACS0";
+      break;
+   default:
+      printf( "error: unsupported format\n" );
+      return false;
+   }
+   const char* indirect = "";
+   if ( object.indirect_format ) {
+      indirect = " (indirect)";
+   }
+   printf( "format: %s%s\n", format, indirect );
+   bool success = false;
+   if ( viewer->options->list_chunks ) {
+      switch ( object.format ) {
+      case FORMAT_BIG_E:
+      case FORMAT_LITTLE_E:
+         list_chunks( &object );
+         success = true;
+         break;
+      default:
+         printf( "error: format does not support chunks\n" );
+      }
+   }
+   else if ( viewer->options->view_chunk ) {
+      switch ( object.format ) {
+      case FORMAT_BIG_E:
+      case FORMAT_LITTLE_E:
+         if ( view_chunk( &object, viewer->options->view_chunk ) ) {
+            success = true;
+         }
+         break;
+      default:
+         printf( "error: format does not support chunks\n" );
+      }
+   }
+   else {
+      show_object( &object );
+      success = true;
+   }
+   return success;
 }
 
 static void init_object( struct object* object, const char* data, int size ) {
