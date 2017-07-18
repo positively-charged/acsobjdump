@@ -56,6 +56,8 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <limits.h>
+#include <stdarg.h>
+#include <setjmp.h>
 
 #define STATIC_ASSERT( ... ) \
   STATIC_ASSERT_IMPL( __VA_ARGS__,, )
@@ -68,6 +70,12 @@ STATIC_ASSERT( sizeof( char ) == 1, char_must_be_1_byte );
 STATIC_ASSERT( sizeof( short ) == 2, short_must_be_2_bytes );
 STATIC_ASSERT( sizeof( int ) == 4, int_must_be_4_bytes );
 STATIC_ASSERT( sizeof( long long ) == 8, long_long_must_be_8_bytes );
+
+#define DIAG_NONE 0x0
+#define DIAG_ERR 0x1
+#define DIAG_WARN 0x2
+#define DIAG_NOTE 0x4
+#define DIAG_INTERNAL 0x80
 
 enum {
    PCD_NOP,
@@ -553,16 +561,18 @@ struct viewer {
    struct options* options;
    unsigned char* object_data;
    int object_size;
+   jmp_buf bail;
 }; 
 
 static void init_options( struct options* options );
 static bool read_options( struct options* options, int argc, char** argv );
+static void option_err( const char* format, ... );
 static bool run( struct options* options );
 static void init_viewer( struct viewer* viewer, struct options* options );
 static void deinit_viewer( struct viewer* viewer );
-static bool read_object_file( struct viewer* viewer );
+static void read_object_file( struct viewer* viewer );
 static void read_object_file_data( struct viewer* viewer, FILE* fh );
-static bool run_operation( struct viewer* viewer );
+static bool perform_operation( struct viewer* viewer );
 static void init_object( struct object* object, const char* data, int size );
 static void determine_format( struct object* object );
 static void determine_object_offsets( struct object* object );
@@ -607,6 +617,8 @@ static void show_object( struct object* object );
 static void show_all_chunks( struct object* object );
 static void show_script_directory( struct object* object );
 static void show_string_directory( struct object* object );
+static void diag( struct viewer* viewer, int flags, const char* format, ... );
+static void bail( struct viewer* viewer );
 
 static struct {
    const char* name;
@@ -1029,7 +1041,7 @@ static bool read_options( struct options* options, int argc, char** argv ) {
                i += 2;
             }
             else {
-               printf( "error: missing chunk to view\n" );
+               option_err( "missing chunk to view" );
                return false;
             }
             break;
@@ -1038,7 +1050,7 @@ static bool read_options( struct options* options, int argc, char** argv ) {
             ++i;
             break;
          default:
-            printf( "error: unknown option: %c\n", argv[ i ][ 1 ] );
+            option_err( "unknown option: %c", argv[ i ][ 1 ] );
             return false;
          }
       }
@@ -1047,7 +1059,7 @@ static bool read_options( struct options* options, int argc, char** argv ) {
          return true;
       }
       else {
-         printf( "error: missing object file\n" );
+         option_err( "missing object file" );
          return false;
       }
    }
@@ -1057,18 +1069,28 @@ static bool read_options( struct options* options, int argc, char** argv ) {
          "Options:\n"
          "  -c <chunk>    View selected chunk\n"
          "  -l            List chunks in object file\n",
-         argv[ 0 ]
-      );
+         argv[ 0 ] );
       return false;
    }
+}
+
+static void option_err( const char* format, ... ) {
+   printf( "option error: " );
+   va_list args;
+   va_start( args, format );
+   vprintf( format, args );
+   va_end( args );
+   printf( "\n" );
 }
 
 static bool run( struct options* options ) {
    bool success = false;
    struct viewer viewer;
    init_viewer( &viewer, options );
-   if ( read_object_file( &viewer ) ) {
-      success = run_operation( &viewer );
+   if ( setjmp( viewer.bail ) == 0 ) {
+      read_object_file( &viewer );
+      perform_operation( &viewer );
+      success = true;
    }
    deinit_viewer( &viewer );
    return success;
@@ -1086,15 +1108,15 @@ static void deinit_viewer( struct viewer* viewer ) {
    }
 }
 
-static bool read_object_file( struct viewer* viewer ) {
+static void read_object_file( struct viewer* viewer ) {
    FILE* fh = fopen( viewer->options->file, "rb" );
    if ( ! fh ) {
-      printf( "error: failed to open file: %s\n", viewer->options->file );
-      return false;
+      diag( viewer, DIAG_ERR,
+         "failed to open file: %s", viewer->options->file );
+      bail( viewer );
    }
    read_object_file_data( viewer, fh );
    fclose( fh );
-   return true;
 }
 
 static void read_object_file_data( struct viewer* viewer, FILE* fh ) {
@@ -1107,7 +1129,7 @@ static void read_object_file_data( struct viewer* viewer, FILE* fh ) {
    viewer->object_size = size;
 }
 
-static bool run_operation( struct viewer* viewer ) {
+static bool perform_operation( struct viewer* viewer ) {
    struct object object;
    init_object( &object, ( char* ) viewer->object_data, viewer->object_size );
    determine_format( &object );
@@ -2399,4 +2421,30 @@ static void show_string_directory( struct object* object ) {
       data += sizeof( offset );
       show_string( i, offset, object->data + offset, false );
    }
+}
+
+static void diag( struct viewer* viewer, int flags, const char* format, ... ) {
+   // Message type qualifier.
+   if ( flags & DIAG_INTERNAL ) {
+      printf( "internal " );
+   }
+   // Message type.
+   if ( flags & DIAG_ERR ) {
+      printf( "error: " );
+   }
+   else if ( flags & DIAG_WARN ) {
+      printf( "warning: " );
+   }
+   else if ( flags & DIAG_NOTE ) {
+      printf( "note: " );
+   }
+   // Message.
+   va_list args;
+   va_start( args, format );
+   vprintf( format, args );
+   va_end( args );
+}
+
+static void bail( struct viewer* viewer ) {
+   longjmp( viewer->bail, 1 );
 }
