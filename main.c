@@ -1123,14 +1123,19 @@ static void read_object_file( struct viewer* viewer ) {
 }
 
 static bool read_object_file_data( struct viewer* viewer, FILE* fh ) {
-   fseek( fh, 0, SEEK_END );
+   int seek_result = fseek( fh, 0, SEEK_END );
+   if ( seek_result != 0 ) {
+      diag( viewer, DIAG_ERR,
+         "failed to seek to end of object file" );
+      return false;
+   }
    long tell_result = ftell( fh );
    if ( ! ( tell_result >= 0 ) ) {
       diag( viewer, DIAG_ERR,
          "failed to get size of object file" );
       return false;
    }
-   int seek_result = fseek( fh, 0, SEEK_SET );
+   seek_result = fseek( fh, 0, SEEK_SET );
    if ( seek_result != 0 ) {
       diag( viewer, DIAG_ERR,
          "failed to seek to beginning of object file" );
