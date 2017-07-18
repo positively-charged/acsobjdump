@@ -536,44 +536,45 @@ struct func_entry {
    int offset;
 };
 
-static bool read_options( struct options*, int, char** );
+static bool read_options( struct options* options, int argc, char** argv );
 static void init_object( struct object* object, const char* data, int size );
 static void determine_format( struct object* object );
 static void determine_object_offsets( struct object* object );
 static bool script_directory_present( struct object* object );
-static void init_chunk( struct chunk*, const char* );
-static int get_chunk_type( const char* );
+static void init_chunk( struct chunk* chunk, const char* data );
+static int get_chunk_type( const char* name );
 static void show_pcode( struct object* object, int offset, int code_size );
-static void list_chunks( struct object* );
-static bool show_chunk( struct object*, struct chunk*, bool );
-static void show_aray( struct chunk* );
-static void show_aini( struct chunk* );
-static void show_aimp( struct chunk* );
-static void show_astr_mstr( struct chunk* );
+static void list_chunks( struct object* object );
+static bool show_chunk( struct object* object, struct chunk* chunk,
+   bool show_contents );
+static void show_aray( struct chunk* chunk );
+static void show_aini( struct chunk* chunk );
+static void show_aimp( struct chunk* chunk );
+static void show_astr_mstr( struct chunk* chunk );
 static void show_atag( struct chunk* chunk );
 static void show_atag_version0( struct chunk* chunk );
-static void show_load( struct chunk* );
-static void show_func( struct object*, struct chunk* );
-static void show_fnam( struct chunk* );
-static void show_mini( struct chunk* );
-static void show_mimp( struct chunk* );
-static void show_mexp( struct chunk* );
+static void show_load( struct chunk* chunk );
+static void show_func( struct object* object, struct chunk* chunk );
+static void show_fnam( struct chunk* chunk );
+static void show_mini( struct chunk* chunk );
+static void show_mimp( struct chunk* chunk );
+static void show_mexp( struct chunk* chunk );
 static void show_sptr( struct object* object, struct chunk* chunk );
 static void read_acse_script_entry( struct object* object, const char* data,
    struct common_acse_script_entry* common_entry );
 static int calc_code_size( struct object* object, int offset );
-static const char* get_script_type_name( int );
-static void show_sflg( struct chunk* );
-static void show_svct( struct chunk* );
+static const char* get_script_type_name( int type );
+static void show_sflg( struct chunk* chunk );
+static void show_svct( struct chunk* chunk );
 static void show_snam( struct chunk* chunk );
 static void show_strl( struct chunk*, bool is_encoded );
 static void show_string( int index, int offset, const char* value,
    bool is_encoded );
 static void show_sary_fary( struct chunk* chunk );
 static void show_alib( struct chunk* chunk );
-static bool view_chunk( struct object*, const char* );
-static void init_chunk_read( struct object*, struct chunk_read* );
-static bool read_chunk( struct chunk_read*, struct chunk* );
+static bool view_chunk( struct object* object, const char* name );
+static void init_chunk_read( struct object* object, struct chunk_read* read );
+static bool read_chunk( struct chunk_read* read, struct chunk* chunk );
 static bool find_chunk( struct object* object, const char* name,
    struct chunk* chunk );
 static void show_object( struct object* object );
