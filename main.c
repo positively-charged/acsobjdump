@@ -1045,7 +1045,7 @@ int main( int argc, char* argv[] ) {
    return result;
 }
 
-bool read_options( struct options* options, int argc, char** argv ) {
+static bool read_options( struct options* options, int argc, char** argv ) {
    options->file = NULL;
    options->view_chunk = NULL;
    options->list_chunks = false;
@@ -1162,7 +1162,7 @@ static bool script_directory_present( struct object* object ) {
    }
 }
 
-void init_chunk( struct chunk* chunk, const char* data ) {
+static void init_chunk( struct chunk* chunk, const char* data ) {
    struct chunk_header header;
    memcpy( &header, data, sizeof( header ) );
    memcpy( chunk->name, header.name, sizeof( header.name ) );
@@ -1172,7 +1172,7 @@ void init_chunk( struct chunk* chunk, const char* data ) {
    chunk->type = get_chunk_type( chunk->name );
 }
 
-void list_chunks( struct object* object ) {
+static void list_chunks( struct object* object ) {
    const char* data = object->data + object->chunk_offset;
    while ( data < object->data + object->size ) {
       struct chunk chunk;
@@ -1182,7 +1182,7 @@ void list_chunks( struct object* object ) {
    }
 }
 
-bool show_chunk( struct object* object, struct chunk* chunk,
+static bool show_chunk( struct object* object, struct chunk* chunk,
    bool show_contents ) {
    printf( "-- %s (size=%d offset=%zd)\n", chunk->name, chunk->size,
       ( chunk->data - sizeof( struct chunk_header ) ) - object->data );
@@ -1255,7 +1255,7 @@ bool show_chunk( struct object* object, struct chunk* chunk,
    return true;
 }
 
-void show_aray( struct chunk* chunk ) {
+static void show_aray( struct chunk* chunk ) {
    int i = 0;
    while ( i < chunk->size ) {
       struct {
@@ -1268,7 +1268,7 @@ void show_aray( struct chunk* chunk ) {
    }
 }
 
-void show_aini( struct chunk* chunk ) {
+static void show_aini( struct chunk* chunk ) {
    int value = 0;
    memcpy( &value, chunk->data, sizeof( int ) );
    printf( "index=%d\n", value );
@@ -1282,7 +1282,7 @@ void show_aini( struct chunk* chunk ) {
    }
 }
 
-void show_aimp( struct chunk* chunk ) {
+static void show_aimp( struct chunk* chunk ) {
    const char* data = chunk->data;
    int count = 0;
    memcpy( &count, data, sizeof( int ) );
@@ -1305,7 +1305,7 @@ void show_aimp( struct chunk* chunk ) {
    }
 }
 
-void show_astr_mstr( struct chunk* chunk ) {
+static void show_astr_mstr( struct chunk* chunk ) {
    int count = chunk->size / sizeof( int );
    int i = 0;
    while ( i < count ) {
@@ -1368,7 +1368,7 @@ static void show_atag_version0( struct chunk* chunk ) {
    }
 }
 
-void show_load( struct chunk* chunk ) {
+static void show_load( struct chunk* chunk ) {
    int i = 0;
    while ( i < chunk->size ) {
       if ( chunk->data[ i ] ) {
@@ -1381,7 +1381,7 @@ void show_load( struct chunk* chunk ) {
    }
 }
 
-void show_func( struct object* object, struct chunk* chunk ) {
+static void show_func( struct object* object, struct chunk* chunk ) {
    struct func_entry entry;
    int count = chunk->size / sizeof( entry );
    int i = 0;
@@ -1400,7 +1400,7 @@ void show_func( struct object* object, struct chunk* chunk ) {
    }
 }
 
-void show_fnam( struct chunk* chunk ) {
+static void show_fnam( struct chunk* chunk ) {
    const char* data = chunk->data;
    int count = 0;
    memcpy( &count, data, sizeof( int ) );
@@ -1414,7 +1414,7 @@ void show_fnam( struct chunk* chunk ) {
    }
 }
 
-void show_mini( struct chunk* chunk ) {
+static void show_mini( struct chunk* chunk ) {
    int index = 0;
    memcpy( &index, chunk->data, sizeof( int ) );
    printf( "first-var=%d\n", index );
@@ -1430,7 +1430,7 @@ void show_mini( struct chunk* chunk ) {
    }
 }
 
-void show_mimp( struct chunk* chunk ) {
+static void show_mimp( struct chunk* chunk ) {
    int i = 0;
    while ( i < chunk->size ) {
       int index = 0;
@@ -1444,7 +1444,7 @@ void show_mimp( struct chunk* chunk ) {
    }
 }
 
-void show_mexp( struct chunk* chunk ) {
+static void show_mexp( struct chunk* chunk ) {
    int count = 0;
    memcpy( &count, chunk->data, sizeof( int ) );
    printf( "table-size=%d\n", count );
@@ -1589,7 +1589,7 @@ static int calc_code_size( struct object* object, int offset ) {
    return end_offset - offset;
 }
 
-const char* get_script_type_name( int type ) {
+static const char* get_script_type_name( int type ) {
    enum {
       TYPE_CLOSED,
       TYPE_OPEN,
@@ -2041,7 +2041,7 @@ static void show_pcode( struct object* object, int offset, int code_size ) {
    }
 }
 
-void show_sflg( struct chunk* chunk ) {
+static void show_sflg( struct chunk* chunk ) {
    int pos = 0;
    while ( pos < chunk->size ) {
       enum {
@@ -2068,7 +2068,7 @@ void show_sflg( struct chunk* chunk ) {
    }
 }
 
-void show_svct( struct chunk* chunk ) {
+static void show_svct( struct chunk* chunk ) {
    int pos = 0;
    while ( pos < chunk->size ) {
       struct {
@@ -2169,7 +2169,7 @@ static void show_alib( struct chunk* chunk ) {
    printf( "library=yes\n" );
 }
 
-int get_chunk_type( const char* name ) {
+static int get_chunk_type( const char* name ) {
    char buff[ 5 ];
    memcpy( buff, name, 4 );
    for ( int i = 0; i < 4; ++i ) {
@@ -2211,7 +2211,7 @@ int get_chunk_type( const char* name ) {
    return supported[ i ].type;
 }
 
-bool view_chunk( struct object* object, const char* name ) {
+static bool view_chunk( struct object* object, const char* name ) {
    int type = get_chunk_type( name );
    if ( type == CHUNK_UNKNOWN ) {
       printf( "error: unsupported chunk: %s\n", name );
@@ -2236,14 +2236,14 @@ bool view_chunk( struct object* object, const char* name ) {
    }
 }
 
-void init_chunk_read( struct object* object, struct chunk_read* read ) {
+static void init_chunk_read( struct object* object, struct chunk_read* read ) {
    read->data = object->data;
    read->data_size = ( object->indirect_format ) ?
       object->real_header_offset : object->size;
    read->pos = object->chunk_offset;
 }
 
-bool read_chunk( struct chunk_read* read, struct chunk* chunk ) {
+static bool read_chunk( struct chunk_read* read, struct chunk* chunk ) {
    if ( read->pos + sizeof( struct chunk_header ) <= read->data_size ) {
       init_chunk( chunk, read->data + read->pos );
       read->pos += sizeof( struct chunk_header ) + chunk->size;
