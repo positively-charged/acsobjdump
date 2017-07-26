@@ -574,7 +574,16 @@ static void read_object_file( struct viewer* viewer );
 static bool read_object_file_data( struct viewer* viewer, FILE* fh );
 static bool perform_operation( struct viewer* viewer );
 static void init_object( struct object* object, const char* data, int size );
-static void determine_format( struct object* object );
+static int data_left( struct object* object, const char* data );
+static bool offset_in_range( struct object* object, const char* start,
+   const char* end, int offset );
+static bool offset_in_object_file( struct object* object, int offset );
+static void expect_data( struct viewer* viewer, struct object* object,
+   const char* start, int size );
+static void expect_offset_in_object_file( struct viewer* viewer,
+   struct object* object, int offset );
+static void determine_format( struct viewer* viewer, struct object* object );
+static bool peek_real_id( struct object* object, struct header* header );
 static void determine_object_offsets( struct object* object );
 static bool script_directory_present( struct object* object );
 static void init_chunk( struct chunk* chunk, const char* data );
@@ -1168,7 +1177,7 @@ static bool read_object_file_data( struct viewer* viewer, FILE* fh ) {
 static bool perform_operation( struct viewer* viewer ) {
    struct object object;
    init_object( &object, ( char* ) viewer->object_data, viewer->object_size );
-   determine_format( &object );
+   determine_format( viewer, &object );
    determine_object_offsets( &object );
    const char* format = "ACSE";
    switch ( object.format ) {
@@ -1231,10 +1240,55 @@ static void init_object( struct object* object, const char* data, int size ) {
    object->indirect_format = false;
    object->small_code = false;
 }
+ 
+static int data_left( struct object* object, const char* data ) {
+   return ( int ) ( ( object->data + object->size ) - data );
+}
 
-static void determine_format( struct object* object ) {
+static bool offset_in_range( struct object* object, const char* start,
+   const char* end, int offset ) {
+   return ( offset >= ( start - object->data ) &&
+      offset < ( end - object->data ) );
+}
+
+static bool offset_in_object_file( struct object* object, int offset ) {
+   return offset_in_range( object, object->data, object->data + object->size,
+      offset );
+}
+
+static void expect_data( struct viewer* viewer, struct object* object,
+   const char* start, int size ) {
+   int left = data_left( object, start );
+   if ( left < size ) {
+      diag( viewer, DIAG_ERR,
+         "expecting to read %u byte%s, "
+         "but object file has %u byte%s of data left to read",
+         size, size == 1u ? "" : "s",
+         left, left == 1u ? "" : "s" );
+      bail( viewer );
+   }
+}
+
+static void expect_offset_in_object_file( struct viewer* viewer,
+   struct object* object, int offset ) {
+   if ( ! offset_in_object_file( object, offset ) ) {
+      diag( viewer, DIAG_ERR,
+         "the object file appears to be malformed: an offset (%d) in the "
+         "object file points outside the boundaries of the object file",
+         offset );
+      bail( viewer );
+   }
+}
+
+static void determine_format( struct viewer* viewer, struct object* object ) {
    struct header header;
+   if ( data_left( object, object->data ) < sizeof( header ) ) {
+      diag( viewer, DIAG_ERR,
+         "object file too small to be an ACS object file" );
+      bail( viewer );
+   }
    memcpy( &header, object->data, sizeof( header ) );
+   expect_offset_in_object_file( viewer, object, header.offset );
    object->directory_offset = header.offset;
    if ( memcmp( header.id, "ACSE", 4 ) == 0 ||
       memcmp( header.id, "ACSe", 4 ) == 0 ) {
@@ -1243,14 +1297,17 @@ static void determine_format( struct object* object ) {
       object->chunk_offset = object->directory_offset;
    }
    else if ( memcmp( header.id, "ACS\0", 4 ) == 0 ) {
-      const char* data = object->data + header.offset - 4;
-      if ( memcmp( data, "ACSE", 4 ) == 0 || memcmp( data, "ACSe", 4 ) == 0 ) {
-         object->format = ( data[ 3 ] == 'E' ) ?
+      // ACSE/ACSe object file disguised as ACS0 object file.
+      if ( peek_real_id( object, &header ) ) {
+         int offset = header.offset - sizeof( header.id );
+         object->format = ( ( object->data + offset )[ 3 ] == 'E' ) ?
             FORMAT_BIG_E : FORMAT_LITTLE_E;
          int chunk_offset = 0;
-         data -= sizeof( chunk_offset );
-         memcpy( &chunk_offset, data, sizeof( chunk_offset ) );
-         object->real_header_offset = data - object->data;
+         offset -= sizeof( chunk_offset );
+         expect_offset_in_object_file( viewer, object, offset );
+         memcpy( &chunk_offset, object->data + offset,
+            sizeof( chunk_offset ) );
+         object->real_header_offset = offset;
          object->chunk_offset = chunk_offset;
          object->indirect_format = true;
       }
@@ -1261,6 +1318,18 @@ static void determine_format( struct object* object ) {
    if ( object->format == FORMAT_LITTLE_E ) {
       object->small_code = true;
    }
+}
+
+static bool peek_real_id( struct object* object, struct header* header ) {
+   int offset = header->offset - sizeof( header->id );
+   if ( offset_in_object_file( object, offset ) ) {
+      const char* data = object->data + offset;
+      if ( memcmp( data, "ACSE", 4 ) == 0 ||
+         memcmp( data, "ACSe", 4 ) == 0 ) {
+         return true;
+      }
+   }
+   return false;
 }
 
 static void determine_object_offsets( struct object* object ) {
