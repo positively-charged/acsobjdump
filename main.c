@@ -584,7 +584,8 @@ static void expect_offset_in_object_file( struct viewer* viewer,
    struct object* object, int offset );
 static void determine_format( struct viewer* viewer, struct object* object );
 static bool peek_real_id( struct object* object, struct header* header );
-static void determine_object_offsets( struct object* object );
+static void determine_object_offsets( struct viewer* viewer,
+   struct object* object );
 static bool script_directory_present( struct object* object );
 static void init_chunk( struct chunk* chunk, const char* data );
 static int get_chunk_type( const char* name );
@@ -626,7 +627,8 @@ static void show_object( struct viewer* viewer, struct object* object );
 static void show_all_chunks( struct object* object );
 static void show_script_directory( struct viewer* viewer,
    struct object* object );
-static void show_string_directory( struct object* object );
+static void show_string_directory( struct viewer* viewer,
+   struct object* object );
 static void diag( struct viewer* viewer, int flags, const char* format, ... );
 static void bail( struct viewer* viewer );
 
@@ -1179,7 +1181,7 @@ static bool perform_operation( struct viewer* viewer ) {
    struct object object;
    init_object( &object, ( char* ) viewer->object_data, viewer->object_size );
    determine_format( viewer, &object );
-   determine_object_offsets( &object );
+   determine_object_offsets( viewer, &object );
    const char* format = "ACSE";
    switch ( object.format ) {
    case FORMAT_BIG_E:
@@ -1333,14 +1335,17 @@ static bool peek_real_id( struct object* object, struct header* header ) {
    return false;
 }
 
-static void determine_object_offsets( struct object* object ) {
+static void determine_object_offsets( struct viewer* viewer,
+   struct object* object ) {
    if ( script_directory_present( object ) ) {
       const char* data = object->data + object->directory_offset;
       int total_scripts = 0;
+      expect_data( viewer, object, data, sizeof( total_scripts ) );
       memcpy( &total_scripts, data, sizeof( total_scripts ) );
-      object->string_offset = object->directory_offset +
-         sizeof( total_scripts ) +
-         total_scripts * sizeof( struct acs0_script_entry );
+      int string_offset = object->directory_offset + sizeof( total_scripts ) +
+         ( total_scripts * sizeof( struct acs0_script_entry ) );
+      expect_offset_in_object_file( viewer, object, string_offset );
+      object->string_offset = string_offset;
    }
 }
 
@@ -2474,7 +2479,7 @@ static void show_object( struct viewer* viewer, struct object* object ) {
    }
    if ( script_directory_present( object ) ) {
       show_script_directory( viewer, object );
-      show_string_directory( object );
+      show_string_directory( viewer, object );
    }
 }
 
@@ -2517,15 +2522,18 @@ static void show_script_directory( struct viewer* viewer,
    }
 }
 
-static void show_string_directory( struct object* object ) {
+static void show_string_directory( struct viewer* viewer,
+   struct object* object ) {
    printf( "== string directory (offset=%d)\n", object->string_offset );
    const char* data = object->data + object->string_offset;
    int total_strings = 0;
+   expect_data( viewer, object, data, sizeof( total_strings ) );
    memcpy( &total_strings, data, sizeof( total_strings ) );
    data += sizeof( total_strings );
    printf( "total-strings=%d\n", total_strings );
    for ( int i = 0; i < total_strings; ++i ) {
       int offset = 0;
+      expect_data( viewer, object, data, sizeof( offset ) );
       memcpy( &offset, data, sizeof( offset ) );
       data += sizeof( offset );
       show_string( i, offset, object->data + offset, false );
