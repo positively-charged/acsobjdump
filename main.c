@@ -622,9 +622,10 @@ static void init_chunk_read( struct object* object, struct chunk_read* read );
 static bool read_chunk( struct chunk_read* read, struct chunk* chunk );
 static bool find_chunk( struct object* object, const char* name,
    struct chunk* chunk );
-static void show_object( struct object* object );
+static void show_object( struct viewer* viewer, struct object* object );
 static void show_all_chunks( struct object* object );
-static void show_script_directory( struct object* object );
+static void show_script_directory( struct viewer* viewer,
+   struct object* object );
 static void show_string_directory( struct object* object );
 static void diag( struct viewer* viewer, int flags, const char* format, ... );
 static void bail( struct viewer* viewer );
@@ -1223,7 +1224,7 @@ static bool perform_operation( struct viewer* viewer ) {
       }
    }
    else {
-      show_object( &object );
+      show_object( viewer, &object );
       success = true;
    }
    return success;
@@ -1261,10 +1262,10 @@ static void expect_data( struct viewer* viewer, struct object* object,
    int left = data_left( object, start );
    if ( left < size ) {
       diag( viewer, DIAG_ERR,
-         "expecting to read %u byte%s, "
-         "but object file has %u byte%s of data left to read",
-         size, size == 1u ? "" : "s",
-         left, left == 1u ? "" : "s" );
+         "expecting to read %d byte%s, "
+         "but object file has %d byte%s of data left to read",
+         size, ( size == 1 ) ? "" : "s",
+         ( left < 0 ) ? 0 : left, ( left == 1 ) ? "" : "s" );
       bail( viewer );
    }
 }
@@ -2462,7 +2463,7 @@ static bool find_chunk( struct object* object, const char* name,
    return false;
 }
 
-static void show_object( struct object* object ) {
+static void show_object( struct viewer* viewer, struct object* object ) {
    switch ( object->format ) {
    case FORMAT_BIG_E:
    case FORMAT_LITTLE_E:
@@ -2472,7 +2473,7 @@ static void show_object( struct object* object ) {
       break;
    }
    if ( script_directory_present( object ) ) {
-      show_script_directory( object );
+      show_script_directory( viewer, object );
       show_string_directory( object );
    }
 }
@@ -2486,15 +2487,18 @@ static void show_all_chunks( struct object* object ) {
    }
 }
 
-static void show_script_directory( struct object* object ) {
+static void show_script_directory( struct viewer* viewer,
+   struct object* object ) {
    printf( "== script directory (offset=%d)\n", object->directory_offset );
    const char* data = object->data + object->directory_offset;
    int total_scripts = 0;
+   expect_data( viewer, object, data, sizeof( total_scripts ) );
    memcpy( &total_scripts, data, sizeof( total_scripts ) );
    data += sizeof( total_scripts );
    printf( "total-scripts=%d\n", total_scripts );
    for ( int i = 0; i < total_scripts; ++i ) {
       struct acs0_script_entry entry;
+      expect_data( viewer, object, data, sizeof( entry ) );
       memcpy( &entry, data, sizeof( entry ) );
       data += sizeof( entry );
       int number = entry.number % 1000;
