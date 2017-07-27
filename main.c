@@ -582,6 +582,14 @@ static void expect_data( struct viewer* viewer, struct object* object,
    const char* start, int size );
 static void expect_offset_in_object_file( struct viewer* viewer,
    struct object* object, int offset );
+static void expect_chunk_offset_in_chunk( struct viewer* viewer,
+   struct chunk* chunk, int offset );
+static void expect_chunk_data( struct viewer* viewer, struct chunk* chunk,
+   const char* start, int size );
+static int chunk_data_left( struct chunk* chunk, const char* data );
+static bool chunk_offset_in_range( struct chunk* chunk, const char* start,
+   const char* end, int offset );
+static bool chunk_offset_in_chunk( struct chunk* chunk, int offset );
 static void determine_format( struct viewer* viewer, struct object* object );
 static bool peek_real_id( struct object* object, struct header* header );
 static void determine_object_offsets( struct viewer* viewer,
@@ -613,7 +621,9 @@ static int calc_code_size( struct viewer* viewer, struct object* object,
 static const char* get_script_type_name( int type );
 static void show_sflg( struct chunk* chunk );
 static void show_svct( struct chunk* chunk );
-static void show_snam( struct chunk* chunk );
+static void show_snam( struct viewer* viewer, struct chunk* chunk );
+static const char* read_chunk_string( struct viewer* viewer,
+   struct chunk* chunk, int offset );
 static void show_strl( struct chunk*, bool is_encoded );
 static void show_string( int index, int offset, const char* value,
    bool is_encoded );
@@ -1290,6 +1300,44 @@ static void expect_offset_in_object_file( struct viewer* viewer,
    }
 }
 
+static void expect_chunk_offset_in_chunk( struct viewer* viewer,
+   struct chunk* chunk, int offset ) {
+   if ( ! chunk_offset_in_chunk( chunk, offset ) ) {
+      diag( viewer, DIAG_ERR,
+         "an offset (%d) in %s chunk points outside the boundaries of the "
+         "chunk", offset, chunk->name );
+      bail( viewer );
+   }
+}
+
+static void expect_chunk_data( struct viewer* viewer, struct chunk* chunk,
+   const char* start, int size ) {
+   int left = chunk_data_left( chunk, start );
+   if ( left < size ) {
+      diag( viewer, DIAG_ERR,
+         "expecting to read %d byte%s, "
+         "but %s chunk has %d byte%s of data left to read",
+         size, ( size == 1 ) ? "" : "s", chunk->name,
+         ( left < 0 ) ? 0 : left, ( left == 1 ) ? "" : "s" );
+      bail( viewer );
+   }
+}
+
+static int chunk_data_left( struct chunk* chunk, const char* data ) {
+   return ( int ) ( ( chunk->data + chunk->size ) - data );
+}
+
+static bool chunk_offset_in_range( struct chunk* chunk, const char* start,
+   const char* end, int offset ) {
+   return ( offset >= ( start - chunk->data ) &&
+      offset < ( end - chunk->data ) );
+}
+
+static bool chunk_offset_in_chunk( struct chunk* chunk, int offset ) {
+   return chunk_offset_in_range( chunk, chunk->data, chunk->data + chunk->size,
+      offset );
+}
+
 static void determine_format( struct viewer* viewer, struct object* object ) {
    struct header header;
    if ( data_left( object, object->data ) < sizeof( header ) ) {
@@ -1430,7 +1478,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_svct( chunk );
          break;
       case CHUNK_SNAM:
-         show_snam( chunk );
+         show_snam( viewer, chunk );
          break;
       case CHUNK_STRL:
          show_strl( chunk, false );
@@ -2282,20 +2330,36 @@ static void show_svct( struct chunk* chunk ) {
    }
 }
 
-static void show_snam( struct chunk* chunk ) {
+static void show_snam( struct viewer* viewer, struct chunk* chunk ) {
    const char* data = chunk->data;
    int total_names = 0;
+   expect_chunk_data( viewer, chunk, data, sizeof( total_names ) );
    memcpy( &total_names, data, sizeof( total_names ) );
    data += sizeof( total_names );
    printf( "total-named-scripts=%d\n", total_names );
    for ( int i = 0; i < total_names; ++i ) {
       int offset = 0;
+      expect_chunk_data( viewer, chunk, data, sizeof( offset ) );
       memcpy( &offset, data, sizeof( offset ) );
       data += sizeof( offset );
-      enum { INITIAL_SCRIPT_NUMBER = -1 }; // For named scripts.
+      enum { INITIAL_NAMEDSCRIPT_NUMBER = -1 };
+      expect_chunk_offset_in_chunk( viewer, chunk, offset );
       printf( "script-number=%d script-name=\"%s\"\n",
-         INITIAL_SCRIPT_NUMBER - i, chunk->data + offset );
+         INITIAL_NAMEDSCRIPT_NUMBER - i,
+         read_chunk_string( viewer, chunk, offset ) );
    }
+}
+
+static const char* read_chunk_string( struct viewer* viewer,
+   struct chunk* chunk, int offset ) {
+   // Make sure the string is NUL-terminated.
+   if ( ! memchr( chunk->data + offset, '\0', chunk->size - offset ) ) {
+      diag( viewer, DIAG_ERR,
+         "a string at offset %d in %s chunk is not NUL-terminated", offset,
+         chunk->name );
+      bail( viewer );
+   }
+   return chunk->data + offset;
 }
 
 static void show_strl( struct chunk* chunk, bool is_encoded ) {
