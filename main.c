@@ -529,9 +529,9 @@ struct chunk_header {
    int size;
 };
 
-struct chunk_read {
-   const char* data;
-   int data_size;
+struct chunk_reader {
+   struct object* object;
+   int end_pos;
    int pos;
 };
 
@@ -587,12 +587,10 @@ static bool peek_real_id( struct object* object, struct header* header );
 static void determine_object_offsets( struct viewer* viewer,
    struct object* object );
 static bool script_directory_present( struct object* object );
-static void init_chunk( struct chunk* chunk, const char* data );
-static int get_chunk_type( const char* name );
 static void show_pcode( struct object* object, int offset, int code_size );
-static void list_chunks( struct object* object );
-static bool show_chunk( struct object* object, struct chunk* chunk,
-   bool show_contents );
+static void list_chunks( struct viewer* viewer, struct object* object );
+static bool show_chunk( struct viewer* viewer, struct object* object,
+   struct chunk* chunk, bool show_contents );
 static void show_aray( struct chunk* chunk );
 static void show_aini( struct chunk* chunk );
 static void show_aimp( struct chunk* chunk );
@@ -600,15 +598,18 @@ static void show_astr_mstr( struct chunk* chunk );
 static void show_atag( struct chunk* chunk );
 static void show_atag_version0( struct chunk* chunk );
 static void show_load( struct chunk* chunk );
-static void show_func( struct object* object, struct chunk* chunk );
+static void show_func( struct viewer* viewer, struct object* object,
+   struct chunk* chunk );
 static void show_fnam( struct chunk* chunk );
 static void show_mini( struct chunk* chunk );
 static void show_mimp( struct chunk* chunk );
 static void show_mexp( struct chunk* chunk );
-static void show_sptr( struct object* object, struct chunk* chunk );
+static void show_sptr( struct viewer* viewer, struct object* object,
+   struct chunk* chunk );
 static void read_acse_script_entry( struct object* object, const char* data,
    struct common_acse_script_entry* common_entry );
-static int calc_code_size( struct object* object, int offset );
+static int calc_code_size( struct viewer* viewer, struct object* object,
+   int offset );
 static const char* get_script_type_name( int type );
 static void show_sflg( struct chunk* chunk );
 static void show_svct( struct chunk* chunk );
@@ -618,13 +619,19 @@ static void show_string( int index, int offset, const char* value,
    bool is_encoded );
 static void show_sary_fary( struct chunk* chunk );
 static void show_alib( struct chunk* chunk );
-static bool view_chunk( struct object* object, const char* name );
-static void init_chunk_read( struct object* object, struct chunk_read* read );
-static bool read_chunk( struct chunk_read* read, struct chunk* chunk );
-static bool find_chunk( struct object* object, const char* name,
+static bool view_chunk( struct viewer* viewer, struct object* object,
+   const char* name );
+static void init_chunk_reader( struct chunk_reader* reader,
+   struct object* object );
+static bool read_chunk( struct viewer* viewer, struct chunk_reader* reader,
    struct chunk* chunk );
+static void init_chunk( struct viewer* viewer, struct object* object,
+   int offset, struct chunk* chunk );
+static int get_chunk_type( const char* name );
+static bool find_chunk( struct viewer* viewer, struct object* object,
+   const char* name, struct chunk* chunk );
 static void show_object( struct viewer* viewer, struct object* object );
-static void show_all_chunks( struct object* object );
+static void show_all_chunks( struct viewer* viewer, struct object* object );
 static void show_script_directory( struct viewer* viewer,
    struct object* object );
 static void show_string_directory( struct viewer* viewer,
@@ -1206,7 +1213,7 @@ static bool perform_operation( struct viewer* viewer ) {
       switch ( object.format ) {
       case FORMAT_BIG_E:
       case FORMAT_LITTLE_E:
-         list_chunks( &object );
+         list_chunks( viewer, &object );
          success = true;
          break;
       default:
@@ -1217,7 +1224,7 @@ static bool perform_operation( struct viewer* viewer ) {
       switch ( object.format ) {
       case FORMAT_BIG_E:
       case FORMAT_LITTLE_E:
-         if ( view_chunk( &object, viewer->options->view_chunk ) ) {
+         if ( view_chunk( viewer, &object, viewer->options->view_chunk ) ) {
             success = true;
          }
          break;
@@ -1364,28 +1371,17 @@ static bool script_directory_present( struct object* object ) {
    }
 }
 
-static void init_chunk( struct chunk* chunk, const char* data ) {
-   struct chunk_header header;
-   memcpy( &header, data, sizeof( header ) );
-   memcpy( chunk->name, header.name, sizeof( header.name ) );
-   chunk->name[ sizeof( header.name ) ] = '\0';
-   chunk->size = header.size;
-   chunk->data = data + sizeof( header );
-   chunk->type = get_chunk_type( chunk->name );
-}
-
-static void list_chunks( struct object* object ) {
-   const char* data = object->data + object->chunk_offset;
-   while ( data < object->data + object->size ) {
-      struct chunk chunk;
-      init_chunk( &chunk, data );
-      show_chunk( object, &chunk, false );
-      data += sizeof( int ) * 2 + chunk.size;
+static void list_chunks( struct viewer* viewer, struct object* object ) {
+   struct chunk chunk;
+   struct chunk_reader reader;
+   init_chunk_reader( &reader, object );
+   while ( read_chunk( viewer, &reader, &chunk ) ) {
+      show_chunk( viewer, object, &chunk, false );
    }
 }
 
-static bool show_chunk( struct object* object, struct chunk* chunk,
-   bool show_contents ) {
+static bool show_chunk( struct viewer* viewer, struct object* object,
+   struct chunk* chunk, bool show_contents ) {
    printf( "-- %s (size=%d offset=%zd)\n", chunk->name, chunk->size,
       ( chunk->data - sizeof( struct chunk_header ) ) - object->data );
    if ( show_contents ) {
@@ -1410,7 +1406,7 @@ static bool show_chunk( struct object* object, struct chunk* chunk,
          show_load( chunk );
          break;
       case CHUNK_FUNC:
-         show_func( object, chunk );
+         show_func( viewer, object, chunk );
          break;
       case CHUNK_FNAM:
          show_fnam( chunk );
@@ -1425,7 +1421,7 @@ static bool show_chunk( struct object* object, struct chunk* chunk,
          show_mexp( chunk );
          break;
       case CHUNK_SPTR:
-         show_sptr( object, chunk );
+         show_sptr( viewer, object, chunk );
          break;
       case CHUNK_SFLG:
          show_sflg( chunk );
@@ -1583,7 +1579,8 @@ static void show_load( struct chunk* chunk ) {
    }
 }
 
-static void show_func( struct object* object, struct chunk* chunk ) {
+static void show_func( struct viewer* viewer, struct object* object,
+   struct chunk* chunk ) {
    struct func_entry entry;
    int count = chunk->size / sizeof( entry );
    int i = 0;
@@ -1593,7 +1590,7 @@ static void show_func( struct object* object, struct chunk* chunk ) {
          entry.num_param, entry.size, entry.has_return, entry.offset );
       if ( entry.offset != 0 ) {
          show_pcode( object, entry.offset,
-            calc_code_size( object, entry.offset ) );
+            calc_code_size( viewer, object, entry.offset ) );
       }
       else {
          printf( "(imported)\n" );
@@ -1661,7 +1658,8 @@ static void show_mexp( struct chunk* chunk ) {
    }
 }
 
-static void show_sptr( struct object* object, struct chunk* chunk ) {
+static void show_sptr( struct viewer* viewer, struct object* object,
+   struct chunk* chunk ) {
    int size = 0;
    while ( size < chunk->size ) {
       struct common_acse_script_entry entry;
@@ -1677,7 +1675,7 @@ static void show_sptr( struct object* object, struct chunk* chunk ) {
       }
       printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
       show_pcode( object, entry.offset,
-         calc_code_size( object, entry.offset ) );
+         calc_code_size( viewer, object, entry.offset ) );
    }
 }
 
@@ -1713,14 +1711,15 @@ static void read_acse_script_entry( struct object* object, const char* data,
    }
 }
 
-static int calc_code_size( struct object* object, int offset ) {
+static int calc_code_size( struct viewer* viewer, struct object* object,
+   int offset ) {
    int end_offset = object->size;
    // The starting offset of an adjacent script can be used as the end offset.
    if (
       object->format == FORMAT_BIG_E ||
       object->format == FORMAT_LITTLE_E ) {
       struct chunk chunk;
-      if ( find_chunk( object, "SPTR", &chunk ) ) {
+      if ( find_chunk( viewer, object, "SPTR", &chunk ) ) {
          int size = 0;
          while ( size < chunk.size ) {
             struct common_acse_script_entry entry;
@@ -1732,7 +1731,7 @@ static int calc_code_size( struct object* object, int offset ) {
          }
       }
       // The starting offset of a function can be used as the end offset.
-      if ( find_chunk( object, "FUNC", &chunk ) ) {
+      if ( find_chunk( viewer, object, "FUNC", &chunk ) ) {
          struct func_entry entry;
          int total_funcs = chunk.size / sizeof( entry );
          for ( int i = 0; i < total_funcs; ++i ) {
@@ -2371,6 +2370,67 @@ static void show_alib( struct chunk* chunk ) {
    printf( "library=yes\n" );
 }
 
+static bool view_chunk( struct viewer* viewer, struct object* object,
+   const char* name ) {
+   int type = get_chunk_type( name );
+   if ( type == CHUNK_UNKNOWN ) {
+      printf( "error: unsupported chunk: %s\n", name );
+      return false;
+   }
+   struct chunk chunk;
+   struct chunk_reader reader;
+   init_chunk_reader( &reader, object );
+   bool found = false;
+   while ( read_chunk( viewer, &reader, &chunk ) ) {
+      if ( chunk.type == type ) {
+         show_chunk( viewer, object, &chunk, true );
+         found = true;
+      }
+   }
+   if ( found ) {
+      return true;
+   }
+   else {
+      printf( "error: `%s` chunk not found\n", name );
+      return false;
+   }
+}
+
+static void init_chunk_reader( struct chunk_reader* reader,
+   struct object* object ) {
+   reader->object = object;
+   reader->end_pos = ( object->indirect_format ) ?
+      object->real_header_offset : object->size;
+   reader->pos = object->chunk_offset;
+}
+
+static bool read_chunk( struct viewer* viewer, struct chunk_reader* reader,
+   struct chunk* chunk ) {
+   if ( reader->end_pos - reader->pos >= sizeof( struct chunk_header ) ) {
+      init_chunk( viewer, reader->object, reader->pos, chunk );
+      reader->pos += sizeof( struct chunk_header ) + chunk->size;
+      return true;
+   }
+   else {
+      return false;
+   }
+}
+
+static void init_chunk( struct viewer* viewer, struct object* object,
+   int offset, struct chunk* chunk ) {
+   const char* data = object->data + offset;
+   struct chunk_header header;
+   expect_data( viewer, object, data, sizeof( header ) );
+   memcpy( &header, data, sizeof( header ) );
+   data += sizeof( header );
+   memcpy( chunk->name, header.name, sizeof( header.name ) );
+   chunk->name[ sizeof( header.name ) ] = '\0';
+   chunk->size = header.size;
+   chunk->data = data;
+   chunk->type = get_chunk_type( chunk->name );
+   expect_data( viewer, object, data, chunk->size );
+}
+
 static int get_chunk_type( const char* name ) {
    char buff[ 5 ];
    memcpy( buff, name, 4 );
@@ -2413,54 +2473,11 @@ static int get_chunk_type( const char* name ) {
    return supported[ i ].type;
 }
 
-static bool view_chunk( struct object* object, const char* name ) {
-   int type = get_chunk_type( name );
-   if ( type == CHUNK_UNKNOWN ) {
-      printf( "error: unsupported chunk: %s\n", name );
-      return false;
-   }
-   struct chunk chunk;
-   struct chunk_read read;
-   init_chunk_read( object, &read );
-   bool found = false;
-   while ( read_chunk( &read, &chunk ) ) {
-      if ( chunk.type == type ) {
-         show_chunk( object, &chunk, true );
-         found = true;
-      }
-   }
-   if ( found ) {
-      return true;
-   }
-   else {
-      printf( "error: `%s` chunk not found\n", name );
-      return false;
-   }
-}
-
-static void init_chunk_read( struct object* object, struct chunk_read* read ) {
-   read->data = object->data;
-   read->data_size = ( object->indirect_format ) ?
-      object->real_header_offset : object->size;
-   read->pos = object->chunk_offset;
-}
-
-static bool read_chunk( struct chunk_read* read, struct chunk* chunk ) {
-   if ( read->pos + sizeof( struct chunk_header ) <= read->data_size ) {
-      init_chunk( chunk, read->data + read->pos );
-      read->pos += sizeof( struct chunk_header ) + chunk->size;
-      return true;
-   }
-   else {
-      return false;
-   }
-}
-
-static bool find_chunk( struct object* object, const char* name,
-   struct chunk* chunk ) {
-   struct chunk_read reader;
-   init_chunk_read( object, &reader );
-   while ( read_chunk( &reader, chunk ) ) {
+static bool find_chunk( struct viewer* viewer, struct object* object,
+   const char* name, struct chunk* chunk ) {
+   struct chunk_reader reader;
+   init_chunk_reader( &reader, object );
+   while ( read_chunk( viewer, &reader, chunk ) ) {
       if ( strcmp( name, chunk->name ) == 0 ) {
          return true;
       }
@@ -2472,7 +2489,7 @@ static void show_object( struct viewer* viewer, struct object* object ) {
    switch ( object->format ) {
    case FORMAT_BIG_E:
    case FORMAT_LITTLE_E:
-      show_all_chunks( object );
+      show_all_chunks( viewer, object );
       break;
    default:
       break;
@@ -2483,12 +2500,12 @@ static void show_object( struct viewer* viewer, struct object* object ) {
    }
 }
 
-static void show_all_chunks( struct object* object ) {
+static void show_all_chunks( struct viewer* viewer, struct object* object ) {
    struct chunk chunk;
-   struct chunk_read read;
-   init_chunk_read( object, &read );
-   while ( read_chunk( &read, &chunk ) ) {
-      show_chunk( object, &chunk, true );
+   struct chunk_reader reader;
+   init_chunk_reader( &reader, object );
+   while ( read_chunk( viewer, &reader, &chunk ) ) {
+      show_chunk( viewer, object, &chunk, true );
    }
 }
 
@@ -2518,7 +2535,7 @@ static void show_script_directory( struct viewer* viewer,
       }
       printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
       show_pcode( object, entry.offset,
-         calc_code_size( object, entry.offset ) );
+         calc_code_size( viewer, object, entry.offset ) );
    }
 }
 
