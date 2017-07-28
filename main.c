@@ -624,7 +624,12 @@ static void show_svct( struct chunk* chunk );
 static void show_snam( struct viewer* viewer, struct chunk* chunk );
 static const char* read_chunk_string( struct viewer* viewer,
    struct chunk* chunk, int offset );
-static void show_strl( struct chunk*, bool is_encoded );
+static void show_strl_stre( struct viewer* viewer, struct chunk* chunk );
+static const char* read_strl_stre_string( struct viewer* viewer,
+   struct chunk* chunk, int offset );
+static bool is_strl_stre_string_nul_terminated( struct chunk* chunk,
+   int offset );
+static char decode_ch( int string_offset, int offset, char ch );
 static void show_string( int index, int offset, const char* value,
    bool is_encoded );
 static void show_sary_fary( struct chunk* chunk );
@@ -1481,10 +1486,8 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_snam( viewer, chunk );
          break;
       case CHUNK_STRL:
-         show_strl( chunk, false );
-         break;
       case CHUNK_STRE:
-         show_strl( chunk, true );
+         show_strl_stre( viewer, chunk );
          break;
       case CHUNK_SARY:
       case CHUNK_FARY:
@@ -2362,20 +2365,57 @@ static const char* read_chunk_string( struct viewer* viewer,
    return chunk->data + offset;
 }
 
-static void show_strl( struct chunk* chunk, bool is_encoded ) {
+static void show_strl_stre( struct viewer* viewer, struct chunk* chunk ) {
    const char* data = chunk->data;
-   data += sizeof( int );
-   int count = 0;
-   memcpy( &count, data, sizeof( int ) );
-   data += sizeof( int );
-   data += sizeof( int );
-   printf( "table-size=%d\n", count );
-   for ( int i = 0; i < count; ++i ) {
+   expect_chunk_data( viewer, chunk, data, sizeof( int ) );
+   data += sizeof( int ); // Padding. Ignore it.
+   int total_strings = 0;
+   expect_chunk_data( viewer, chunk, data, sizeof( total_strings ) );
+   memcpy( &total_strings, data, sizeof( total_strings ) );
+   data += sizeof( total_strings );
+   expect_chunk_data( viewer, chunk, data, sizeof( int ) );
+   data += sizeof( int ); // Padding. Ignore it.
+   printf( "table-size=%d\n", total_strings );
+   for ( int i = 0; i < total_strings; ++i ) {
       int offset = 0;
-      memcpy( &offset, data, sizeof( int ) );
-      data += sizeof( int );
-      show_string( i, offset, chunk->data + offset, is_encoded );
+      expect_chunk_data( viewer, chunk, data, sizeof( offset ) );
+      memcpy( &offset, data, sizeof( offset ) );
+      data += sizeof( offset );
+      expect_chunk_offset_in_chunk( viewer, chunk, offset );
+      show_string( i, offset, read_strl_stre_string( viewer, chunk, offset ),
+         ( chunk->type == CHUNK_STRE ) );
    }
+}
+
+static const char* read_strl_stre_string( struct viewer* viewer,
+   struct chunk* chunk, int offset ) {
+   if ( ! is_strl_stre_string_nul_terminated( chunk, offset ) ) {
+      diag( viewer, DIAG_ERR,
+         "a string at offset %d in %s chunk is not NUL-terminated", offset,
+         chunk->name );
+      bail( viewer );
+   }
+   return chunk->data + offset;
+}
+
+static bool is_strl_stre_string_nul_terminated( struct chunk* chunk,
+   int offset ) {
+   int i = offset;
+   while ( i < chunk->size ) {
+      char ch = chunk->data[ i ];
+      if ( chunk->type == CHUNK_STRE ) {
+         ch = decode_ch( offset, i - offset, ch );
+      }
+      if ( ch == '\0' ) {
+         return true;
+      }
+      ++i;
+   }
+   return false;
+}
+
+static char decode_ch( int string_offset, int offset, char ch ) {
+   return ( ch ^ ( string_offset * 157135 + offset / 2 ) );
 }
 
 static void show_string( int index, int offset, const char* value,
@@ -2383,31 +2423,29 @@ static void show_string( int index, int offset, const char* value,
    printf( "[%d] offset=%d", index, offset );
    printf( " " );
    printf( "\"" );
-   const char* ch = value;
-   int k = 0;
+   int i = 0;
    while ( true ) {
-      char decoded = *ch;
+      char ch = value[ i ];
       if ( is_encoded ) {
-         decoded = decoded ^ ( offset * 157135 + k / 2 );
-         ++k;
+         ch = decode_ch( offset, i, ch );
       }
-      if ( ! decoded ) {
+      if ( ch == '\0' ) {
          break;
       }
       // Make the output of some characters more pretty.
-      if ( decoded == '"' ) {
+      if ( ch == '"' ) {
          printf( "\\\"" );
       }
-      else if ( decoded == '\r' ) {
+      else if ( ch == '\r' ) {
          printf( "\\r" );
       }
-      else if ( decoded == '\n' ) {
+      else if ( ch == '\n' ) {
          printf( "\\n" );
       }
       else {
-         printf( "%c", decoded );
+         printf( "%c", ch );
       }
-      ++ch;
+      ++i;
    }
    printf( "\"" );
    printf( "\n" );
