@@ -632,7 +632,7 @@ static bool is_strl_stre_string_nul_terminated( struct chunk* chunk,
 static char decode_ch( int string_offset, int offset, char ch );
 static void show_string( int index, int offset, const char* value,
    bool is_encoded );
-static void show_sary_fary( struct chunk* chunk );
+static void show_sary_fary( struct viewer* viewer, struct chunk* chunk );
 static void show_alib( struct chunk* chunk );
 static bool view_chunk( struct viewer* viewer, struct object* object,
    const char* name );
@@ -1491,7 +1491,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          break;
       case CHUNK_SARY:
       case CHUNK_FARY:
-         show_sary_fary( chunk );
+         show_sary_fary( viewer, chunk );
          break;
       case CHUNK_ALIB:
          show_alib( chunk );
@@ -2451,17 +2451,19 @@ static void show_string( int index, int offset, const char* value,
    printf( "\n" );
 }
 
-static void show_sary_fary( struct chunk* chunk ) {
+static void show_sary_fary( struct viewer* viewer, struct chunk* chunk ) {
    const char* data = chunk->data;
    short index = 0;
+   expect_chunk_data( viewer, chunk, data, sizeof( index ) );
    memcpy( &index, data, sizeof( index ) );
    data += sizeof( index );
    int size = 0; // Size of a script array.
-   int array_count = ( chunk->size - sizeof( index ) ) / sizeof( size );
+   int total_arrays = ( chunk->size - sizeof( index ) ) / sizeof( size );
    printf( "%s=%d total-script-arrays=%d\n",
       ( chunk->type == CHUNK_FARY ) ? "function" : "script",
-      index, array_count );
-   for ( int i = 0; i < array_count; ++i ) {
+      index, total_arrays );
+   for ( int i = 0; i < total_arrays; ++i ) {
+      expect_chunk_data( viewer, chunk, data, sizeof( size ) );
       memcpy( &size, data, sizeof( size ) );
       data += sizeof( size );
       printf( "array-index=%d array-size=%d\n", i, size );
