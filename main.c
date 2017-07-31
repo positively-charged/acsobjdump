@@ -601,7 +601,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
    struct chunk* chunk, bool show_contents );
 static void show_aray( struct chunk* chunk );
 static void show_aini( struct chunk* chunk );
-static void show_aimp( struct chunk* chunk );
+static void show_aimp( struct viewer* viewer, struct chunk* chunk );
 static void show_astr_mstr( struct chunk* chunk );
 static void show_atag( struct chunk* chunk );
 static void show_atag_version0( struct chunk* chunk );
@@ -1446,7 +1446,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_aini( chunk );
          break;
       case CHUNK_AIMP:
-         show_aimp( chunk );
+         show_aimp( viewer, chunk );
          break;
       case CHUNK_ASTR:
       case CHUNK_MSTR:
@@ -1531,25 +1531,27 @@ static void show_aini( struct chunk* chunk ) {
    }
 }
 
-static void show_aimp( struct chunk* chunk ) {
+static void show_aimp( struct viewer* viewer, struct chunk* chunk ) {
    const char* data = chunk->data;
-   int count = 0;
-   memcpy( &count, data, sizeof( int ) );
-   data += sizeof( int );
-   printf( "total-imported=%d\n", count );
+   int total_arrays = 0;
+   expect_chunk_data( viewer, chunk, data, sizeof( total_arrays ) );
+   memcpy( &total_arrays, data, sizeof( total_arrays ) );
+   data += sizeof( total_arrays );
+   printf( "total-imported-arrays=%d\n", total_arrays );
    int i = 0;
-   while ( i < count ) {
-      int index = 0;
-      memcpy( &index, data, sizeof( int ) );
-      data += sizeof( int );
-      int size = 0;
-      memcpy( &size, data, sizeof( int ) );
-      data += sizeof( int );
-      printf( "index=%d %s[%d]\n", index, data, size );
-      while ( *data ) {
-         ++data;
-      }
-      ++data;
+   while ( i < total_arrays ) {
+      unsigned int index = 0;
+      expect_chunk_data( viewer, chunk, data, sizeof( index ) );
+      memcpy( &index, data, sizeof( index ) );
+      data += sizeof( index );
+      unsigned int size = 0;
+      expect_chunk_data( viewer, chunk, data, sizeof( size ) );
+      memcpy( &size, data, sizeof( size ) );
+      data += sizeof( size );
+      const char* string = read_chunk_string( viewer, chunk,
+         ( int ) ( data - chunk->data ) );
+      printf( "index=%u %s[%u]\n", index, string, size );
+      data += strlen( string ) + 1; // Plus one for NUL character.
       ++i;
    }
 }
