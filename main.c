@@ -602,7 +602,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
 static void show_aray( struct chunk* chunk );
 static void show_aini( struct chunk* chunk );
 static void show_aimp( struct viewer* viewer, struct chunk* chunk );
-static void show_astr_mstr( struct chunk* chunk );
+static void show_astr_mstr( struct viewer* viewer, struct chunk* chunk );
 static void show_atag( struct chunk* chunk );
 static void show_atag_version0( struct chunk* chunk );
 static void show_load( struct chunk* chunk );
@@ -1450,7 +1450,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          break;
       case CHUNK_ASTR:
       case CHUNK_MSTR:
-         show_astr_mstr( chunk );
+         show_astr_mstr( viewer, chunk );
          break;
       case CHUNK_ATAG:
          show_atag( chunk );
@@ -1556,14 +1556,14 @@ static void show_aimp( struct viewer* viewer, struct chunk* chunk ) {
    }
 }
 
-static void show_astr_mstr( struct chunk* chunk ) {
-   int count = chunk->size / sizeof( int );
-   int i = 0;
-   while ( i < count ) {
-      int index = 0;
-      memcpy( &index, chunk->data + sizeof( int ) * i, sizeof( int ) );
-      printf( "tagged=%d\n", index );
-      ++i;
+static void show_astr_mstr( struct viewer* viewer, struct chunk* chunk ) {
+   int pos = 0;
+   while ( pos < chunk->size ) {
+      unsigned int index = 0;
+      expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( index ) );
+      memcpy( &index, chunk->data + pos, sizeof( index ) );
+      printf( "tagged=%u\n", index );
+      pos += sizeof( index );
    }
 }
 
