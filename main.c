@@ -619,7 +619,7 @@ static void read_acse_script_entry( struct object* object, const char* data,
 static int calc_code_size( struct viewer* viewer, struct object* object,
    int offset );
 static const char* get_script_type_name( int type );
-static void show_sflg( struct chunk* chunk );
+static void show_sflg( struct viewer* viewer, struct chunk* chunk );
 static void show_svct( struct viewer* viewer, struct chunk* chunk );
 static void show_snam( struct viewer* viewer, struct chunk* chunk );
 static const char* read_chunk_string( struct viewer* viewer,
@@ -1477,7 +1477,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_sptr( viewer, object, chunk );
          break;
       case CHUNK_SFLG:
-         show_sflg( chunk );
+         show_sflg( viewer, chunk );
          break;
       case CHUNK_SVCT:
          show_svct( viewer, chunk );
@@ -2293,7 +2293,7 @@ static void show_pcode( struct object* object, int offset, int code_size ) {
    }
 }
 
-static void show_sflg( struct chunk* chunk ) {
+static void show_sflg( struct viewer* viewer, struct chunk* chunk ) {
    int pos = 0;
    while ( pos < chunk->size ) {
       enum {
@@ -2302,19 +2302,33 @@ static void show_sflg( struct chunk* chunk ) {
       };
       struct {
          short number;
-         short flags;
+         unsigned short flags;
       } entry;
+      expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( entry ) );
       memcpy( &entry, chunk->data + pos, sizeof( entry ) );
       pos += sizeof( entry );
-      printf( "script=%hd flags=", entry.number );
-      if ( entry.flags & FLAG_NET ) {
-         printf( "net" );
-      }
-      if ( entry.flags & FLAG_CLIENTSIDE ) {
-         if ( entry.flags ^ FLAG_CLIENTSIDE ) {
+      printf( "script=%hd ", entry.number );
+      unsigned short flags = entry.flags;
+      printf( "flags=" );
+      // Net flag.
+      if ( flags & FLAG_NET ) {
+         flags &= ~FLAG_NET;
+         printf( "net(0x%x)", FLAG_NET );
+         if ( flags != 0 ) {
             printf( "|" );
          }
-         printf( "clientside" );
+      }
+      // Clientside flag.
+      if ( flags & FLAG_CLIENTSIDE ) {
+         flags &= ~FLAG_CLIENTSIDE;
+         printf( "clientside(0x%x)", FLAG_CLIENTSIDE );
+         if ( flags != 0 ) {
+            printf( "|" );
+         }
+      }
+      // Unknown flags.
+      if ( flags != 0 ) {
+         printf( "unknown(0x%x)", flags );
       }
       printf( "\n" );
    }
