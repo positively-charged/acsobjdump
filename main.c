@@ -600,7 +600,7 @@ static void list_chunks( struct viewer* viewer, struct object* object );
 static bool show_chunk( struct viewer* viewer, struct object* object,
    struct chunk* chunk, bool show_contents );
 static void show_aray( struct viewer* viewer, struct chunk* chunk );
-static void show_aini( struct chunk* chunk );
+static void show_aini( struct viewer* viewer, struct chunk* chunk );
 static void show_aimp( struct viewer* viewer, struct chunk* chunk );
 static void show_astr_mstr( struct viewer* viewer, struct chunk* chunk );
 static void show_atag( struct chunk* chunk );
@@ -1443,7 +1443,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_aray( viewer, chunk );
          break;
       case CHUNK_AINI:
-         show_aini( chunk );
+         show_aini( viewer, chunk );
          break;
       case CHUNK_AIMP:
          show_aimp( viewer, chunk );
@@ -1518,17 +1518,20 @@ static void show_aray( struct viewer* viewer, struct chunk* chunk ) {
    }
 }
 
-static void show_aini( struct chunk* chunk ) {
-   int value = 0;
-   memcpy( &value, chunk->data, sizeof( int ) );
-   printf( "index=%d\n", value );
-   int i = 0;
-   int count = ( chunk->size - sizeof( int ) ) / sizeof( int );
-   while ( i < count ) {
-      memcpy( &value, chunk->data + ( sizeof( int ) + sizeof( int ) * i ),
-         sizeof( int ) );
-      printf( "[%d] = %d\n", i, value );
-      ++i;
+static void show_aini( struct viewer* viewer, struct chunk* chunk ) {
+   int pos = 0;
+   int index = 0;
+   expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( index ) );
+   memcpy( &index, chunk->data + pos, sizeof( index ) );
+   pos += sizeof( index );
+   printf( "array-index=%d\n", index );
+   while ( pos < chunk->size ) {
+      int value = 0;
+      expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( value ) );
+      memcpy( &value, chunk->data + pos, sizeof( value ) );
+      int element = ( pos - sizeof( index ) ) / sizeof( value );
+      printf( "[%d] = %d\n", element, value );
+      pos += sizeof( value );
    }
 }
 
