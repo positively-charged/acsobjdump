@@ -620,7 +620,7 @@ static int calc_code_size( struct viewer* viewer, struct object* object,
    int offset );
 static const char* get_script_type_name( int type );
 static void show_sflg( struct chunk* chunk );
-static void show_svct( struct chunk* chunk );
+static void show_svct( struct viewer* viewer, struct chunk* chunk );
 static void show_snam( struct viewer* viewer, struct chunk* chunk );
 static const char* read_chunk_string( struct viewer* viewer,
    struct chunk* chunk, int offset );
@@ -1480,7 +1480,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_sflg( chunk );
          break;
       case CHUNK_SVCT:
-         show_svct( chunk );
+         show_svct( viewer, chunk );
          break;
       case CHUNK_SNAM:
          show_snam( viewer, chunk );
@@ -2320,14 +2320,15 @@ static void show_sflg( struct chunk* chunk ) {
    }
 }
 
-static void show_svct( struct chunk* chunk ) {
+static void show_svct( struct viewer* viewer, struct chunk* chunk ) {
    int pos = 0;
    while ( pos < chunk->size ) {
       struct {
          short number;
          short size;
       } entry;
-      memcpy( &entry, chunk->data + pos, sizeof( chunk ) );
+      expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( entry ) ); 
+      memcpy( &entry, chunk->data + pos, sizeof( entry ) );
       pos += sizeof( entry );
       printf( "script=%hd new-size=%hd\n", entry.number, entry.size );
    }
