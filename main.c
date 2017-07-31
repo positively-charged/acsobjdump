@@ -599,7 +599,7 @@ static void show_pcode( struct object* object, int offset, int code_size );
 static void list_chunks( struct viewer* viewer, struct object* object );
 static bool show_chunk( struct viewer* viewer, struct object* object,
    struct chunk* chunk, bool show_contents );
-static void show_aray( struct chunk* chunk );
+static void show_aray( struct viewer* viewer, struct chunk* chunk );
 static void show_aini( struct chunk* chunk );
 static void show_aimp( struct viewer* viewer, struct chunk* chunk );
 static void show_astr_mstr( struct viewer* viewer, struct chunk* chunk );
@@ -1440,7 +1440,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
    if ( show_contents ) {
       switch ( chunk->type ) {
       case CHUNK_ARAY:
-         show_aray( chunk );
+         show_aray( viewer, chunk );
          break;
       case CHUNK_AINI:
          show_aini( chunk );
@@ -1504,16 +1504,17 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
    return true;
 }
 
-static void show_aray( struct chunk* chunk ) {
-   int i = 0;
-   while ( i < chunk->size ) {
+static void show_aray( struct viewer* viewer, struct chunk* chunk ) {
+   int pos = 0;
+   while ( pos < chunk->size ) {
       struct {
          int number;
          int size;
       } entry;
-      memcpy( &entry, chunk->data + i, sizeof( entry ) );
+      expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( entry ) );
+      memcpy( &entry, chunk->data + pos, sizeof( entry ) );
       printf( "index=%d size=%d\n", entry.number, entry.size );
-      i += sizeof( entry );
+      pos += sizeof( entry );
    }
 }
 
