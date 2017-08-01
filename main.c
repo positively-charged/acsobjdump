@@ -610,7 +610,7 @@ static void show_func( struct viewer* viewer, struct object* object,
    struct chunk* chunk );
 static void show_fnam( struct viewer* viewer, struct chunk* chunk );
 static void show_mini( struct viewer* viewer, struct chunk* chunk );
-static void show_mimp( struct chunk* chunk );
+static void show_mimp( struct viewer* viewer, struct chunk* chunk );
 static void show_mexp( struct viewer* viewer, struct chunk* chunk );
 static void show_sptr( struct viewer* viewer, struct object* object,
    struct chunk* chunk );
@@ -1469,7 +1469,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_mini( viewer, chunk );
          break;
       case CHUNK_MIMP:
-         show_mimp( chunk );
+         show_mimp( viewer, chunk );
          break;
       case CHUNK_MEXP:
          show_mexp( viewer, chunk );
@@ -1697,17 +1697,16 @@ static void show_mini( struct viewer* viewer, struct chunk* chunk ) {
    }
 }
 
-static void show_mimp( struct chunk* chunk ) {
-   int i = 0;
-   while ( i < chunk->size ) {
+static void show_mimp( struct viewer* viewer, struct chunk* chunk ) {
+   int pos = 0;
+   while ( pos < chunk->size ) {
       int index = 0;
-      memcpy( &index, chunk->data + i, sizeof( int ) );
-      i += sizeof( int );
-      printf( "index=%d name=%s\n", index, chunk->data + i );
-      while ( chunk->data[ i ] ) {
-         ++i;
-      }
-      ++i;
+      expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( index ) );
+      memcpy( &index, chunk->data + pos, sizeof( index ) );
+      pos += sizeof( index );
+      const char* name = read_chunk_string( viewer, chunk, pos );
+      printf( "index=%d name=%s\n", index, name );
+      pos += strlen( name ) + 1; // Plus one for NUL character.
    }
 }
 
