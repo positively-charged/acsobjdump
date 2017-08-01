@@ -609,7 +609,7 @@ static void show_load( struct viewer* viewer, struct chunk* chunk );
 static void show_func( struct viewer* viewer, struct object* object,
    struct chunk* chunk );
 static void show_fnam( struct viewer* viewer, struct chunk* chunk );
-static void show_mini( struct chunk* chunk );
+static void show_mini( struct viewer* viewer, struct chunk* chunk );
 static void show_mimp( struct chunk* chunk );
 static void show_mexp( struct viewer* viewer, struct chunk* chunk );
 static void show_sptr( struct viewer* viewer, struct object* object,
@@ -1466,7 +1466,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_fnam( viewer, chunk );
          break;
       case CHUNK_MINI:
-         show_mini( chunk );
+         show_mini( viewer, chunk );
          break;
       case CHUNK_MIMP:
          show_mimp( chunk );
@@ -1681,19 +1681,19 @@ static void show_fnam( struct viewer* viewer, struct chunk* chunk ) {
    }
 }
 
-static void show_mini( struct chunk* chunk ) {
-   int index = 0;
-   memcpy( &index, chunk->data, sizeof( int ) );
-   printf( "first-var=%d\n", index );
-   int count = chunk->size / sizeof( int ) - 1;
-   int i = 0;
-   while ( i < count ) {
-      int value = 0;
-      memcpy( &value, chunk->data + sizeof( int ) + sizeof( int ) * i,
-         sizeof( int ) );
-      printf( "index=%d value=%d\n", index, value );
-      ++index;
-      ++i;
+static void show_mini( struct viewer* viewer, struct chunk* chunk ) {
+   const char* data = chunk->data;
+   int first_var = 0;
+   expect_chunk_data( viewer, chunk, data, sizeof( first_var ) );
+   memcpy( &first_var, data, sizeof( first_var ) );
+   data += sizeof( first_var );
+   printf( "first-var=%d\n", first_var );
+   int value = 0;
+   int total_values = ( chunk->size - sizeof( first_var ) ) / sizeof( value );
+   for ( int i = 0; i < total_values; ++i ) {
+      memcpy( &value, data, sizeof( value ) );
+      data += sizeof( value );
+      printf( "index=%d value=%d\n", first_var + i, value );
    }
 }
 
