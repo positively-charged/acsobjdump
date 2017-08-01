@@ -605,7 +605,7 @@ static void show_aimp( struct viewer* viewer, struct chunk* chunk );
 static void show_astr_mstr( struct viewer* viewer, struct chunk* chunk );
 static void show_atag( struct viewer* viewer, struct chunk* chunk );
 static void show_atag_version0( struct viewer* viewer, struct chunk* chunk );
-static void show_load( struct chunk* chunk );
+static void show_load( struct viewer* viewer, struct chunk* chunk );
 static void show_func( struct viewer* viewer, struct object* object,
    struct chunk* chunk );
 static void show_fnam( struct chunk* chunk );
@@ -1456,7 +1456,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_atag( viewer, chunk );
          break;
       case CHUNK_LOAD:
-         show_load( chunk );
+         show_load( viewer, chunk );
          break;
       case CHUNK_FUNC:
          show_func( viewer, object, chunk );
@@ -1626,16 +1626,14 @@ static void show_atag_version0( struct viewer* viewer, struct chunk* chunk ) {
    }
 }
 
-static void show_load( struct chunk* chunk ) {
-   int i = 0;
-   while ( i < chunk->size ) {
-      if ( chunk->data[ i ] ) {
-         printf( "imported-module=%s\n", chunk->data + i );
-         while ( chunk->data[ i ] ) {
-            ++i;
-         }
+static void show_load( struct viewer* viewer, struct chunk* chunk ) {
+   int pos = 0;
+   while ( pos < chunk->size ) {
+      const char* name = read_chunk_string( viewer, chunk, pos );
+      if ( name[ 0 ] != '\0' ) {
+         printf( "imported-module=%s\n", name );
       }
-      ++i;
+      pos += strlen( name ) + 1; // Plus one for NUL character.
    }
 }
 
