@@ -1640,20 +1640,25 @@ static void show_load( struct viewer* viewer, struct chunk* chunk ) {
 static void show_func( struct viewer* viewer, struct object* object,
    struct chunk* chunk ) {
    struct func_entry entry;
-   int count = chunk->size / sizeof( entry );
-   int i = 0;
-   while ( i < count ) {
+   int total_funcs = chunk->size / sizeof( entry );
+   for ( int i = 0; i < total_funcs; ++i ) {
       memcpy( &entry, chunk->data + i * sizeof( entry ), sizeof( entry ) );
       printf( "index=%d params=%d size=%d has-return=%d offset=%d\n", i,
          entry.num_param, entry.size, entry.has_return, entry.offset );
-      if ( entry.offset != 0 ) {
-         show_pcode( object, entry.offset,
-            calc_code_size( viewer, object, entry.offset ) );
+      if ( offset_in_object_file( object, entry.offset ) ) {
+         if ( entry.offset != 0 ) {
+            show_pcode( object, entry.offset,
+               calc_code_size( viewer, object, entry.offset ) );
+         }
+         else {
+            printf( "(imported)\n" );
+         }
       }
       else {
-         printf( "(imported)\n" );
+         diag( viewer, DIAG_WARN,
+            "offset (%d) points outside the object file, so the function code "
+            "will not be shown", entry.offset );  
       }
-      ++i;
    }
 }
 
