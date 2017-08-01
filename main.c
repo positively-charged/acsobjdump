@@ -603,8 +603,8 @@ static void show_aray( struct viewer* viewer, struct chunk* chunk );
 static void show_aini( struct viewer* viewer, struct chunk* chunk );
 static void show_aimp( struct viewer* viewer, struct chunk* chunk );
 static void show_astr_mstr( struct viewer* viewer, struct chunk* chunk );
-static void show_atag( struct chunk* chunk );
-static void show_atag_version0( struct chunk* chunk );
+static void show_atag( struct viewer* viewer, struct chunk* chunk );
+static void show_atag_version0( struct viewer* viewer, struct chunk* chunk );
 static void show_load( struct chunk* chunk );
 static void show_func( struct viewer* viewer, struct object* object,
    struct chunk* chunk );
@@ -1453,7 +1453,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_astr_mstr( viewer, chunk );
          break;
       case CHUNK_ATAG:
-         show_atag( chunk );
+         show_atag( viewer, chunk );
          break;
       case CHUNK_LOAD:
          show_load( chunk );
@@ -1571,12 +1571,13 @@ static void show_astr_mstr( struct viewer* viewer, struct chunk* chunk ) {
    }
 }
 
-static void show_atag( struct chunk* chunk ) {
+static void show_atag( struct viewer* viewer, struct chunk* chunk ) {
    unsigned char version = 0;
+   expect_chunk_data( viewer, chunk, chunk->data, sizeof( version ) );
    memcpy( &version, chunk->data, sizeof( version ) );
    switch ( version ) {
    case 0:
-      show_atag_version0( chunk );
+      show_atag_version0( viewer, chunk );
       break;
    default:
       printf( "chunk-version=%d\n", version );
@@ -1584,12 +1585,14 @@ static void show_atag( struct chunk* chunk ) {
    }
 }
 
-static void show_atag_version0( struct chunk* chunk ) {
+static void show_atag_version0( struct viewer* viewer, struct chunk* chunk ) {
    const char* data = chunk->data;
    unsigned char version = 0;
+   expect_chunk_data( viewer, chunk, data, sizeof( version ) );
    memcpy( &version, data, sizeof( version ) );
    data += sizeof( version );
    int index = 0;
+   expect_chunk_data( viewer, chunk, data, sizeof( index ) );
    memcpy( &index, data, sizeof( index ) );
    data += sizeof( index );
    unsigned char tag = 0;
