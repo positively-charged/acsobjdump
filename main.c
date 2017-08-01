@@ -608,7 +608,7 @@ static void show_atag_version0( struct viewer* viewer, struct chunk* chunk );
 static void show_load( struct viewer* viewer, struct chunk* chunk );
 static void show_func( struct viewer* viewer, struct object* object,
    struct chunk* chunk );
-static void show_fnam( struct chunk* chunk );
+static void show_fnam( struct viewer* viewer, struct chunk* chunk );
 static void show_mini( struct chunk* chunk );
 static void show_mimp( struct chunk* chunk );
 static void show_mexp( struct viewer* viewer, struct chunk* chunk );
@@ -1463,7 +1463,7 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
          show_func( viewer, object, chunk );
          break;
       case CHUNK_FNAM:
-         show_fnam( chunk );
+         show_fnam( viewer, chunk );
          break;
       case CHUNK_MINI:
          show_mini( chunk );
@@ -1663,17 +1663,21 @@ static void show_func( struct viewer* viewer, struct object* object,
    }
 }
 
-static void show_fnam( struct chunk* chunk ) {
+static void show_fnam( struct viewer* viewer, struct chunk* chunk ) {
    const char* data = chunk->data;
-   int count = 0;
-   memcpy( &count, data, sizeof( int ) );
-   data += sizeof( int );
-   printf( "table-size=%d\n", count );
-   for ( int i = 0; i < count; ++i ) {
+   int total_names = 0;
+   expect_chunk_data( viewer, chunk, data, sizeof( total_names ) );
+   memcpy( &total_names, data, sizeof( total_names ) );
+   data += sizeof( total_names );
+   printf( "total-names=%d\n", total_names );
+   for ( int i = 0; i < total_names; ++i ) {
       int offset = 0;
-      memcpy( &offset, data, sizeof( int ) );
-      data += sizeof( int );
-      printf( "[%d] %s\n", i, chunk->data + offset );
+      expect_chunk_data( viewer, chunk, data, sizeof( offset ) );
+      memcpy( &offset, data, sizeof( offset ) );
+      data += sizeof( offset );
+      expect_chunk_offset_in_chunk( viewer, chunk, offset );
+      printf( "[%d] offset=%d %s\n", i, offset,
+         read_chunk_string( viewer, chunk, offset ) );
    }
 }
 
