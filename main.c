@@ -614,7 +614,8 @@ static void show_mimp( struct viewer* viewer, struct chunk* chunk );
 static void show_mexp( struct viewer* viewer, struct chunk* chunk );
 static void show_sptr( struct viewer* viewer, struct object* object,
    struct chunk* chunk );
-static void read_acse_script_entry( struct object* object, const char* data,
+static void read_acse_script_entry( struct viewer* viewer,
+   struct object* object, struct chunk* chunk, const char* data,
    struct common_acse_script_entry* common_entry );
 static int calc_code_size( struct viewer* viewer, struct object* object,
    int offset );
@@ -1730,11 +1731,12 @@ static void show_mexp( struct viewer* viewer, struct chunk* chunk ) {
 
 static void show_sptr( struct viewer* viewer, struct object* object,
    struct chunk* chunk ) {
-   int size = 0;
-   while ( size < chunk->size ) {
+   int pos = 0;
+   while ( pos < chunk->size ) {
       struct common_acse_script_entry entry;
-      read_acse_script_entry( object, chunk->data + size, &entry );
-      size += entry.real_entry_size;
+      read_acse_script_entry( viewer, object, chunk, chunk->data + pos,
+         &entry );
+      pos += entry.real_entry_size;
       printf( "script=%d ", entry.number );
       const char* name = get_script_type_name( entry.type );
       if ( name ) {
@@ -1744,12 +1746,20 @@ static void show_sptr( struct viewer* viewer, struct object* object,
          printf( "type=unknown:%d ", entry.type );
       }
       printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
-      show_pcode( object, entry.offset,
-         calc_code_size( viewer, object, entry.offset ) );
+      if ( offset_in_object_file( object, entry.offset ) ) {
+         show_pcode( object, entry.offset,
+            calc_code_size( viewer, object, entry.offset ) );
+      }
+      else {
+         diag( viewer, DIAG_WARN,
+            "offset (%d) points outside the object file, so the script code "
+            "will not be shown", entry.offset );  
+      }
    }
 }
 
-static void read_acse_script_entry( struct object* object, const char* data,
+static void read_acse_script_entry( struct viewer* viewer,
+   struct object* object, struct chunk* chunk, const char* data,
    struct common_acse_script_entry* common_entry ) {
    if ( object->indirect_format ) {
       struct {
@@ -1758,6 +1768,7 @@ static void read_acse_script_entry( struct object* object, const char* data,
          unsigned char num_param;
          int offset;
       } entry;
+      expect_chunk_data( viewer, chunk, data, sizeof( entry ) );
       memcpy( &entry, data, sizeof( entry ) );
       common_entry->number = entry.number;
       common_entry->type = entry.type;
@@ -1772,6 +1783,7 @@ static void read_acse_script_entry( struct object* object, const char* data,
          int offset;
          int num_param;
       } entry;
+      expect_chunk_data( viewer, chunk, data, sizeof( entry ) );
       memcpy( &entry, data, sizeof( entry ) );
       common_entry->number = entry.number;
       common_entry->type = entry.type;
@@ -1793,7 +1805,8 @@ static int calc_code_size( struct viewer* viewer, struct object* object,
          int size = 0;
          while ( size < chunk.size ) {
             struct common_acse_script_entry entry;
-            read_acse_script_entry( object, chunk.data + size, &entry );
+            read_acse_script_entry( viewer, object, &chunk, chunk.data + size,
+               &entry );
             size += entry.real_entry_size;
             if ( entry.offset > offset && entry.offset < end_offset ) {
                end_offset = entry.offset;
