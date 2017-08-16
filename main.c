@@ -1455,9 +1455,9 @@ static void list_chunks( struct viewer* viewer, struct object* object ) {
 
 static bool show_chunk( struct viewer* viewer, struct object* object,
    struct chunk* chunk, bool show_contents ) {
-   printf( "-- %s (offset=%zd size=%d)\n", chunk->name,
-      ( chunk->data - sizeof( struct chunk_header ) ) - object->data,
-      chunk->size );
+   printf( "-- %s (offset=%d size=%d)\n", chunk->name,
+      ( int ) ( ( chunk->data - sizeof( struct chunk_header ) ) -
+         object->data ), chunk->size );
    if ( show_contents ) {
       switch ( chunk->type ) {
       case CHUNK_ARAY:
@@ -1967,7 +1967,7 @@ static void show_instruction( struct viewer* viewer, struct object* object,
 static void show_opcode( struct viewer* viewer, struct object* object,
    struct pcode_segment* segment ) {
    printf( "%08d> ", segment->offset +
-      ( segment->data - segment->data_start ) );
+      ( int ) ( segment->data - segment->data_start ) );
    int opcode = PCD_NOP;
    if ( object->small_code ) {
       unsigned char temp = 0;
@@ -2350,9 +2350,8 @@ static void show_args( struct viewer* viewer, struct object* object,
             int value = 0;
             memcpy( &value, segment->data, sizeof( value ) );
             segment->data += sizeof( value );
-            printf( "%08ld>   case %d: ",
-               segment->offset + ( segment->data - segment->data_start ),
-               value );
+            printf( "%08d>   case %d: ", segment->offset +
+               ( int ) ( segment->data - segment->data_start ), value );
             int offset = 0;
             memcpy( &offset, segment->data, sizeof( offset ) );
             segment->data += sizeof( offset );
