@@ -557,6 +557,15 @@ struct func_entry {
    int offset;
 };
 
+struct pcode_segment {
+   const char* data_start;
+   const char* data;
+   int offset;
+   int code_size;
+   int opcode;
+   bool invalid_opcode;
+};
+
 struct viewer {
    struct options* options;
    unsigned char* object_data;
@@ -595,7 +604,6 @@ static bool peek_real_id( struct object* object, struct header* header );
 static void determine_object_offsets( struct viewer* viewer,
    struct object* object );
 static bool script_directory_present( struct object* object );
-static void show_pcode( struct object* object, int offset, int code_size );
 static void list_chunks( struct viewer* viewer, struct object* object );
 static bool show_chunk( struct viewer* viewer, struct object* object,
    struct chunk* chunk, bool show_contents );
@@ -620,6 +628,17 @@ static void read_acse_script_entry( struct viewer* viewer,
 static int calc_code_size( struct viewer* viewer, struct object* object,
    int offset );
 static const char* get_script_type_name( int type );
+static void show_pcode( struct viewer* viewer, struct object* object,
+   int offset, int code_size );
+static void init_pcode_segment( struct object* object,
+   struct pcode_segment* segment, int offset, int code_size );
+static bool pcode_segment_end( struct pcode_segment* segment );
+static void show_instruction( struct viewer* viewer, struct object* object,
+   struct pcode_segment* segment );
+static void show_opcode( struct viewer* viewer, struct object* object,
+   struct pcode_segment* segment );
+static void show_args( struct viewer* viewer, struct object* object,
+   struct pcode_segment* segment );
 static void show_sflg( struct viewer* viewer, struct chunk* chunk );
 static void show_svct( struct viewer* viewer, struct chunk* chunk );
 static void show_snam( struct viewer* viewer, struct chunk* chunk );
@@ -1649,7 +1668,7 @@ static void show_func( struct viewer* viewer, struct object* object,
          entry.num_param, entry.size, entry.has_return, entry.offset );
       if ( offset_in_object_file( object, entry.offset ) ) {
          if ( entry.offset != 0 ) {
-            show_pcode( object, entry.offset,
+            show_pcode( viewer, object, entry.offset,
                calc_code_size( viewer, object, entry.offset ) );
          }
          else {
@@ -1747,7 +1766,7 @@ static void show_sptr( struct viewer* viewer, struct object* object,
       }
       printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
       if ( offset_in_object_file( object, entry.offset ) ) {
-         show_pcode( object, entry.offset,
+         show_pcode( viewer, object, entry.offset,
             calc_code_size( viewer, object, entry.offset ) );
       }
       else {
@@ -1913,235 +1932,279 @@ static const char* get_script_type_name( int type ) {
    }
 }
 
-static void show_pcode( struct object* object, int offset, int code_size ) {
-   const char* data_start = object->data + offset;
-   const char* data = data_start;
-   while ( data < data_start + code_size ) {
-      // Show opcode.
-      int opc = 0;
-      int opc_pos = offset + ( data - data_start );
-      if ( object->small_code ) {
-         unsigned char ch = 0;
-         memcpy( &ch, data, 1 );
-         opc = ( int ) ch;
-         ++data;
-         if ( opc >= 240 ) {
-            memcpy( &ch, data, 1 );
-            opc += ( int ) ch;
-            ++data;
-         }
+static void show_pcode( struct viewer* viewer, struct object* object,
+   int offset, int code_size ) {
+   struct pcode_segment segment;
+   init_pcode_segment( object, &segment, offset, code_size );
+   while ( ! pcode_segment_end( &segment ) ) {
+      show_instruction( viewer, object, &segment );
+   }
+}
+
+static void init_pcode_segment( struct object* object,
+   struct pcode_segment* segment, int offset, int code_size ) {
+   segment->data_start = object->data + offset;
+   segment->data = segment->data_start;
+   segment->offset = offset;
+   segment->code_size = code_size;
+   segment->opcode = PCD_NOP;
+   segment->invalid_opcode = false;
+}
+
+static bool pcode_segment_end( struct pcode_segment* segment ) {
+   return ( ( segment->data - segment->data_start >= segment->code_size ) ||
+      segment->invalid_opcode );
+}
+
+static void show_instruction( struct viewer* viewer, struct object* object,
+   struct pcode_segment* segment ) {
+   show_opcode( viewer, object, segment );
+   if ( ! segment->invalid_opcode ) {
+      show_args( viewer, object, segment );
+   }
+}
+
+static void show_opcode( struct viewer* viewer, struct object* object,
+   struct pcode_segment* segment ) {
+   printf( "%08d> ", segment->offset +
+      ( segment->data - segment->data_start ) );
+   int opcode = PCD_NOP;
+   if ( object->small_code ) {
+      unsigned char temp = 0;
+      memcpy( &temp, segment->data, sizeof( temp ) );
+      opcode = temp;
+      segment->data += sizeof( temp );
+      if ( temp >= 240 ) {
+         memcpy( &temp, segment->data, sizeof( temp ) );
+         opcode += temp;
+         segment->data += sizeof( temp );
       }
-      else {
-         memcpy( &opc, data, sizeof( int ) );
-         data += sizeof( int );
-      }
-      printf( "%08d> ", opc_pos );
-      if ( opc < 0 || opc >= PCD_TOTAL ) {
-         printf( "unknown pcode: %d\n", opc );
-         break;
-      }
-      printf( "%s", g_pcodes[ opc ].name );
-      // Show arguments.
-      if (
-         // One argument instructions, with argument being 1-byte/4-bytes.
-         opc == PCD_LSPEC1 ||
-         opc == PCD_LSPEC2 ||
-         opc == PCD_LSPEC3 ||
-         opc == PCD_LSPEC4 ||
-         opc == PCD_LSPEC5 ||
-         opc == PCD_ASSIGNSCRIPTVAR ||
-         opc == PCD_ASSIGNMAPVAR ||
-         opc == PCD_ASSIGNWORLDVAR ||
-         opc == PCD_PUSHSCRIPTVAR ||
-         opc == PCD_PUSHMAPVAR ||
-         opc == PCD_PUSHWORLDVAR ||
-         opc == PCD_ADDSCRIPTVAR ||
-         opc == PCD_ADDMAPVAR ||
-         opc == PCD_ADDWORLDVAR ||
-         opc == PCD_SUBSCRIPTVAR ||
-         opc == PCD_SUBMAPVAR ||
-         opc == PCD_SUBWORLDVAR ||
-         opc == PCD_MULSCRIPTVAR ||
-         opc == PCD_MULMAPVAR ||
-         opc == PCD_MULWORLDVAR ||
-         opc == PCD_DIVSCRIPTVAR ||
-         opc == PCD_DIVMAPVAR ||
-         opc == PCD_DIVWORLDVAR ||
-         opc == PCD_MODSCRIPTVAR ||
-         opc == PCD_MODMAPVAR ||
-         opc == PCD_MODWORLDVAR ||
-         opc == PCD_INCSCRIPTVAR ||
-         opc == PCD_INCMAPVAR ||
-         opc == PCD_INCWORLDVAR ||
-         opc == PCD_DECSCRIPTVAR ||
-         opc == PCD_DECMAPVAR ||
-         opc == PCD_DECWORLDVAR ||
-         opc == PCD_ASSIGNGLOBALVAR ||
-         opc == PCD_PUSHGLOBALVAR ||
-         opc == PCD_ADDGLOBALVAR ||
-         opc == PCD_SUBGLOBALVAR ||
-         opc == PCD_MULGLOBALVAR ||
-         opc == PCD_DIVGLOBALVAR ||
-         opc == PCD_MODGLOBALVAR ||
-         opc == PCD_INCGLOBALVAR ||
-         opc == PCD_DECGLOBALVAR ||
-         opc == PCD_CALL ||
-         opc == PCD_CALLDISCARD ||
-         opc == PCD_PUSHMAPARRAY ||
-         opc == PCD_ASSIGNMAPARRAY ||
-         opc == PCD_ADDMAPARRAY ||
-         opc == PCD_SUBMAPARRAY ||
-         opc == PCD_MULMAPARRAY ||
-         opc == PCD_DIVMAPARRAY ||
-         opc == PCD_MODMAPARRAY ||
-         opc == PCD_INCMAPARRAY ||
-         opc == PCD_DECMAPARRAY ||
-         opc == PCD_PUSHWORLDARRAY ||
-         opc == PCD_ASSIGNWORLDARRAY ||
-         opc == PCD_ADDWORLDARRAY ||
-         opc == PCD_SUBWORLDARRAY ||
-         opc == PCD_MULWORLDARRAY ||
-         opc == PCD_DIVWORLDARRAY ||
-         opc == PCD_MODWORLDARRAY ||
-         opc == PCD_INCWORLDARRAY ||
-         opc == PCD_DECWORLDARRAY ||
-         opc == PCD_PUSHGLOBALARRAY ||
-         opc == PCD_ASSIGNGLOBALARRAY ||
-         opc == PCD_ADDGLOBALARRAY ||
-         opc == PCD_SUBGLOBALARRAY ||
-         opc == PCD_MULGLOBALARRAY ||
-         opc == PCD_DIVGLOBALARRAY ||
-         opc == PCD_MODGLOBALARRAY ||
-         opc == PCD_INCGLOBALARRAY ||
-         opc == PCD_DECGLOBALARRAY ||
-         opc == PCD_LSPEC5RESULT ||
-         opc == PCD_ANDSCRIPTVAR ||
-         opc == PCD_ANDMAPVAR ||
-         opc == PCD_ANDGLOBALVAR ||
-         opc == PCD_ANDMAPARRAY ||
-         opc == PCD_ANDWORLDARRAY ||
-         opc == PCD_ANDGLOBALARRAY ||
-         opc == PCD_EORSCRIPTVAR ||
-         opc == PCD_EORMAPVAR ||
-         opc == PCD_EORWORLDVAR ||
-         opc == PCD_EORGLOBALVAR ||
-         opc == PCD_EORMAPARRAY ||
-         opc == PCD_EORWORLDARRAY ||
-         opc == PCD_EORGLOBALARRAY ||
-         opc == PCD_ORSCRIPTVAR ||
-         opc == PCD_ORMAPVAR ||
-         opc == PCD_ORWORLDVAR ||
-         opc == PCD_ORGLOBALVAR ||
-         opc == PCD_ORMAPARRAY ||
-         opc == PCD_ORWORLDARRAY ||
-         opc == PCD_ORGLOBALARRAY ||
-         opc == PCD_LSSCRIPTVAR ||
-         opc == PCD_LSMAPVAR ||
-         opc == PCD_LSWORLDVAR ||
-         opc == PCD_LSGLOBALVAR ||
-         opc == PCD_LSMAPARRAY ||
-         opc == PCD_LSWORLDARRAY ||
-         opc == PCD_LSGLOBALARRAY ||
-         opc == PCD_RSSCRIPTVAR ||
-         opc == PCD_RSMAPVAR ||
-         opc == PCD_RSWORLDVAR ||
-         opc == PCD_RSGLOBALVAR ||
-         opc == PCD_RSMAPARRAY ||
-         opc == PCD_RSWORLDARRAY ||
-         opc == PCD_RSGLOBALARRAY ||
-         opc == PCD_PUSHFUNCTION ||
-         opc == PCD_ASSIGNSCRIPTARRAY ||
-         opc == PCD_PUSHSCRIPTARRAY ||
-         opc == PCD_ADDSCRIPTARRAY ||
-         opc == PCD_SUBSCRIPTARRAY ||
-         opc == PCD_MULSCRIPTARRAY ||
-         opc == PCD_DIVSCRIPTARRAY ||
-         opc == PCD_MODSCRIPTARRAY ||
-         opc == PCD_INCSCRIPTARRAY ||
-         opc == PCD_DECSCRIPTARRAY ||
-         opc == PCD_ANDSCRIPTARRAY ||
-         opc == PCD_EORSCRIPTARRAY ||
-         opc == PCD_ORSCRIPTARRAY ||
-         opc == PCD_LSSCRIPTARRAY ||
-         opc == PCD_RSSCRIPTARRAY ) {
+   }
+   else {
+      memcpy( &opcode, segment->data, sizeof( opcode ) );
+      segment->data += sizeof( opcode );
+   }
+   if ( opcode >= PCD_NOP && opcode < PCD_TOTAL ) {
+      printf( "%s", g_pcodes[ opcode ].name );
+      segment->opcode = opcode;
+   }
+   else {
+      printf( "unknown pcode: %d\n", opcode );
+      segment->invalid_opcode = true;
+   }
+}
+
+static void show_args( struct viewer* viewer, struct object* object,
+   struct pcode_segment* segment ) {
+   switch ( segment->opcode ) {
+   // One-argument instructions. Argument can be 1 byte or 4 bytes.
+   case PCD_LSPEC1:
+   case PCD_LSPEC2:
+   case PCD_LSPEC3:
+   case PCD_LSPEC4:
+   case PCD_LSPEC5:
+   case PCD_ASSIGNSCRIPTVAR:
+   case PCD_ASSIGNMAPVAR:
+   case PCD_ASSIGNWORLDVAR:
+   case PCD_PUSHSCRIPTVAR:
+   case PCD_PUSHMAPVAR:
+   case PCD_PUSHWORLDVAR:
+   case PCD_ADDSCRIPTVAR:
+   case PCD_ADDMAPVAR:
+   case PCD_ADDWORLDVAR:
+   case PCD_SUBSCRIPTVAR:
+   case PCD_SUBMAPVAR:
+   case PCD_SUBWORLDVAR:
+   case PCD_MULSCRIPTVAR:
+   case PCD_MULMAPVAR:
+   case PCD_MULWORLDVAR:
+   case PCD_DIVSCRIPTVAR:
+   case PCD_DIVMAPVAR:
+   case PCD_DIVWORLDVAR:
+   case PCD_MODSCRIPTVAR:
+   case PCD_MODMAPVAR:
+   case PCD_MODWORLDVAR:
+   case PCD_INCSCRIPTVAR:
+   case PCD_INCMAPVAR:
+   case PCD_INCWORLDVAR:
+   case PCD_DECSCRIPTVAR:
+   case PCD_DECMAPVAR:
+   case PCD_DECWORLDVAR:
+   case PCD_ASSIGNGLOBALVAR:
+   case PCD_PUSHGLOBALVAR:
+   case PCD_ADDGLOBALVAR:
+   case PCD_SUBGLOBALVAR:
+   case PCD_MULGLOBALVAR:
+   case PCD_DIVGLOBALVAR:
+   case PCD_MODGLOBALVAR:
+   case PCD_INCGLOBALVAR:
+   case PCD_DECGLOBALVAR:
+   case PCD_CALL:
+   case PCD_CALLDISCARD:
+   case PCD_PUSHMAPARRAY:
+   case PCD_ASSIGNMAPARRAY:
+   case PCD_ADDMAPARRAY:
+   case PCD_SUBMAPARRAY:
+   case PCD_MULMAPARRAY:
+   case PCD_DIVMAPARRAY:
+   case PCD_MODMAPARRAY:
+   case PCD_INCMAPARRAY:
+   case PCD_DECMAPARRAY:
+   case PCD_PUSHWORLDARRAY:
+   case PCD_ASSIGNWORLDARRAY:
+   case PCD_ADDWORLDARRAY:
+   case PCD_SUBWORLDARRAY:
+   case PCD_MULWORLDARRAY:
+   case PCD_DIVWORLDARRAY:
+   case PCD_MODWORLDARRAY:
+   case PCD_INCWORLDARRAY:
+   case PCD_DECWORLDARRAY:
+   case PCD_PUSHGLOBALARRAY:
+   case PCD_ASSIGNGLOBALARRAY:
+   case PCD_ADDGLOBALARRAY:
+   case PCD_SUBGLOBALARRAY:
+   case PCD_MULGLOBALARRAY:
+   case PCD_DIVGLOBALARRAY:
+   case PCD_MODGLOBALARRAY:
+   case PCD_INCGLOBALARRAY:
+   case PCD_DECGLOBALARRAY:
+   case PCD_LSPEC5RESULT:
+   case PCD_ANDSCRIPTVAR:
+   case PCD_ANDMAPVAR:
+   case PCD_ANDGLOBALVAR:
+   case PCD_ANDMAPARRAY:
+   case PCD_ANDWORLDARRAY:
+   case PCD_ANDGLOBALARRAY:
+   case PCD_EORSCRIPTVAR:
+   case PCD_EORMAPVAR:
+   case PCD_EORWORLDVAR:
+   case PCD_EORGLOBALVAR:
+   case PCD_EORMAPARRAY:
+   case PCD_EORWORLDARRAY:
+   case PCD_EORGLOBALARRAY:
+   case PCD_ORSCRIPTVAR:
+   case PCD_ORMAPVAR:
+   case PCD_ORWORLDVAR:
+   case PCD_ORGLOBALVAR:
+   case PCD_ORMAPARRAY:
+   case PCD_ORWORLDARRAY:
+   case PCD_ORGLOBALARRAY:
+   case PCD_LSSCRIPTVAR:
+   case PCD_LSMAPVAR:
+   case PCD_LSWORLDVAR:
+   case PCD_LSGLOBALVAR:
+   case PCD_LSMAPARRAY:
+   case PCD_LSWORLDARRAY:
+   case PCD_LSGLOBALARRAY:
+   case PCD_RSSCRIPTVAR:
+   case PCD_RSMAPVAR:
+   case PCD_RSWORLDVAR:
+   case PCD_RSGLOBALVAR:
+   case PCD_RSMAPARRAY:
+   case PCD_RSWORLDARRAY:
+   case PCD_RSGLOBALARRAY:
+   case PCD_PUSHFUNCTION:
+   case PCD_ASSIGNSCRIPTARRAY:
+   case PCD_PUSHSCRIPTARRAY:
+   case PCD_ADDSCRIPTARRAY:
+   case PCD_SUBSCRIPTARRAY:
+   case PCD_MULSCRIPTARRAY:
+   case PCD_DIVSCRIPTARRAY:
+   case PCD_MODSCRIPTARRAY:
+   case PCD_INCSCRIPTARRAY:
+   case PCD_DECSCRIPTARRAY:
+   case PCD_ANDSCRIPTARRAY:
+   case PCD_EORSCRIPTARRAY:
+   case PCD_ORSCRIPTARRAY:
+   case PCD_LSSCRIPTARRAY:
+   case PCD_RSSCRIPTARRAY:
+      {
          int arg = 0;
          if ( object->small_code ) {
-            char ch = 0;
-            memcpy( &ch, data, sizeof( int ) );
-            arg = ( int ) ch;
-            ++data;
+            char temp = 0;
+            memcpy( &temp, segment->data, sizeof( temp ) );
+            segment->data += sizeof( temp );
+            arg = temp;
          }
          else {
-            memcpy( &arg, data, sizeof( int ) );
-            data += sizeof( int );
+            memcpy( &arg, segment->data, sizeof( arg ) );
+            segment->data += sizeof( arg );
          }
          printf( " %d\n", arg );
       }
-      else if ( opc == PCD_LSPEC1DIRECT ) {
+      break;
+   case PCD_LSPEC1DIRECT:
+      {
          int id = 0;
-         int arg = 0;
          if ( object->small_code ) {
-            id = ( int ) ( unsigned char ) *data;
-            ++data;
+            id = ( unsigned char ) *segment->data;
+            ++segment->data;
          }
          else {
-            memcpy( &id, data, sizeof( int ) );
-            data += sizeof( int );
+            memcpy( &id, segment->data, sizeof( id ) );
+            segment->data += sizeof( id );
          }
-         memcpy( &arg, data, sizeof( arg ) );
-         data += sizeof( int );
+         int arg = 0;
+         memcpy( &arg, segment->data, sizeof( arg ) );
+         segment->data += sizeof( arg );
          printf( " %d %d\n", id, arg );
       }
-      else if ( opc == PCD_LSPEC2DIRECT ) {
+      break;
+   case PCD_LSPEC2DIRECT:
+      {
          int id = 0;
-         int args[ 2 ];
          if ( object->small_code ) {
-            id = ( int ) ( unsigned char ) *data;
-            ++data;
+            id = ( unsigned char ) *segment->data;
+            ++segment->data;
          }
          else {
-            memcpy( &id, data, sizeof( int ) );
-            data += sizeof( int );
+            memcpy( &id, segment->data, sizeof( id ) );
+            segment->data += sizeof( id );
          }
-         memcpy( args, data, sizeof( args ) );
-         data += sizeof( args );
+         int args[ 2 ];
+         memcpy( args, segment->data, sizeof( args ) );
+         segment->data += sizeof( args );
          printf( " %d %d %d\n",
             id,
             args[ 0 ],
             args[ 1 ] );
       }
-      else if ( opc == PCD_LSPEC3DIRECT ) {
+      break;
+   case PCD_LSPEC3DIRECT:
+      {
          int id = 0;
-         int args[ 3 ];
          if ( object->small_code ) {
-            id = ( int ) ( unsigned char ) *data;
-            ++data;
+            id = ( unsigned char ) *segment->data;
+            ++segment->data;
          }
          else {
-            memcpy( &id, data, sizeof( int ) );
-            data += sizeof( int );
+            memcpy( &id, segment->data, sizeof( id ) );
+            segment->data += sizeof( id );
          }
-         memcpy( args, data, sizeof( args ) );
-         data += sizeof( args );
+         int args[ 3 ];
+         memcpy( args, segment->data, sizeof( args ) );
+         segment->data += sizeof( args );
          printf( " %d %d %d %d\n",
             id,
             args[ 0 ],
             args[ 1 ],
             args[ 2 ] );
       }
-      else if ( opc == PCD_LSPEC4DIRECT ) {
+      break;
+   case PCD_LSPEC4DIRECT:
+      {
          int id = 0;
-         int args[ 4 ];
          if ( object->small_code ) {
-            id = ( int ) ( unsigned char ) *data;
-            ++data;
+            id = ( unsigned char ) *segment->data;
+            ++segment->data;
          }
          else {
-            memcpy( &id, data, sizeof( int ) );
-            data += sizeof( int );
+            memcpy( &id, segment->data, sizeof( id ) );
+            segment->data += sizeof( id );
          }
-         memcpy( args, data, sizeof( args ) );
-         data += sizeof( args );
+         int args[ 4 ];
+         memcpy( args, segment->data, sizeof( args ) );
+         segment->data += sizeof( args );
          printf( " %d %d %d %d %d\n",
             id,
             args[ 0 ],
@@ -2149,19 +2212,21 @@ static void show_pcode( struct object* object, int offset, int code_size ) {
             args[ 2 ],
             args[ 3 ] );
       }
-      else if ( opc == PCD_LSPEC5DIRECT ) {
+      break;
+   case PCD_LSPEC5DIRECT:
+      {
          int id = 0;
-         int args[ 5 ];
          if ( object->small_code ) {
-            id = ( int ) ( unsigned char ) *data;
-            ++data;
+            id = ( unsigned char ) *segment->data;
+            ++segment->data;
          }
          else {
-            memcpy( &id, data, sizeof( int ) );
-            data += sizeof( int );
+            memcpy( &id, segment->data, sizeof( id ) );
+            segment->data += sizeof( id );
          }
-         memcpy( args, data, sizeof( args ) );
-         data += sizeof( args );
+         int args[ 5 ];
+         memcpy( args, segment->data, sizeof( args ) );
+         segment->data += sizeof( args );
          printf( " %d %d %d %d %d %d\n",
             id,
             args[ 0 ],
@@ -2170,153 +2235,167 @@ static void show_pcode( struct object* object, int offset, int code_size ) {
             args[ 3 ],
             args[ 4 ] );
       }
-      else if ( opc == PCD_LSPEC1DIRECTB ) {
+      break;
+   case PCD_LSPEC1DIRECTB:
+      {
          printf( " %hhd %hhd\n",
-            ( unsigned char ) data[ 0 ],
-            data[ 1 ] );
-         data += 2;
+            ( unsigned char ) segment->data[ 0 ],
+            segment->data[ 1 ] );
+         segment->data += sizeof( segment->data[ 0 ] ) * 2;
       }
-      else if ( opc == PCD_LSPEC2DIRECTB ) {
+      break;
+   case PCD_LSPEC2DIRECTB:
+      {
          printf( " %hhd %hhd %hhd\n",
-            ( unsigned char ) data[ 0 ],
-            data[ 1 ],
-            data[ 2 ] );
-         data += 3;
+            ( unsigned char ) segment->data[ 0 ],
+            segment->data[ 1 ],
+            segment->data[ 2 ] );
+         segment->data += sizeof( segment->data[ 0 ] ) * 3;
       }
-      else if ( opc == PCD_LSPEC3DIRECTB ) {
+      break;
+   case PCD_LSPEC3DIRECTB:
+      {
          printf( " %hhd %hhd %hhd %hhd\n",
-            ( unsigned char ) data[ 0 ],
-            data[ 1 ],
-            data[ 2 ],
-            data[ 3 ] );
-         data += 4;
+            ( unsigned char ) segment->data[ 0 ],
+            segment->data[ 1 ],
+            segment->data[ 2 ],
+            segment->data[ 3 ] );
+         segment->data += sizeof( segment->data[ 0 ] ) * 4;
       }
-      else if ( opc == PCD_LSPEC4DIRECTB ) {
+      break;
+   case PCD_LSPEC4DIRECTB:
+      {
          printf( " %hhd %hhd %hhd %hhd %hhd\n",
-            ( unsigned char ) data[ 0 ],
-            data[ 1 ],
-            data[ 2 ],
-            data[ 3 ],
-            data[ 4 ] );
-         data += 5;
+            ( unsigned char ) segment->data[ 0 ],
+            segment->data[ 1 ],
+            segment->data[ 2 ],
+            segment->data[ 3 ],
+            segment->data[ 4 ] );
+         segment->data += sizeof( segment->data[ 0 ] ) * 5;
       }
-      else if ( opc == PCD_LSPEC5DIRECTB ) {
+      break;
+   case PCD_LSPEC5DIRECTB:
+      {
          printf( " %hhd %hhd %hhd %hhd %hhd %hhd\n",
-            ( unsigned char ) data[ 0 ],
-            data[ 1 ],
-            data[ 2 ],
-            data[ 3 ],
-            data[ 4 ],
-            data[ 5 ] );
-         data += 6;
+            ( unsigned char ) segment->data[ 0 ],
+            segment->data[ 1 ],
+            segment->data[ 2 ],
+            segment->data[ 3 ],
+            segment->data[ 4 ],
+            segment->data[ 5 ] );
+         segment->data += sizeof( segment->data[ 0 ] ) * 6;
       }
-      else if (
-         opc == PCD_PUSHBYTE ||
-         opc == PCD_DELAYDIRECTB ) {
-         printf( " %hhd\n", *data );
-         ++data;
-      }
-      else if (
-         opc == PCD_PUSH2BYTES ||
-         opc == PCD_RANDOMDIRECTB ) {
-         printf( " %hhd %hhd\n",
-            data[ 0 ],
-            data[ 1 ] );
-         data += 2;
-      }
-      else if ( opc == PCD_PUSH3BYTES ) {
-         printf( " %hhd %hhd %hhd\n",
-            data[ 0 ],
-            data[ 1 ],
-            data[ 2 ] );
-         data += 3;
-      }
-      else if ( opc == PCD_PUSH4BYTES ) {
-         printf( " %hhd %hhd %hhd %hhd\n",
-            data[ 0 ],
-            data[ 1 ],
-            data[ 2 ],
-            data[ 3 ] );
-         data += 4;
-      }
-      else if ( opc == PCD_PUSH5BYTES ) {
-         printf( " %hhd %hhd %hhd %hhd %hhd\n",
-            data[ 0 ],
-            data[ 1 ],
-            data[ 2 ],
-            data[ 3 ],
-            data[ 4 ] );
-         data += 5;
-      }
-      else if ( opc == PCD_PUSHBYTES ) {
-         int count = ( int ) ( unsigned char ) *data;
+      break;
+   case PCD_PUSHBYTE:
+   case PCD_DELAYDIRECTB:
+      printf( " %hhd\n", *segment->data );
+      segment->data += sizeof( *segment->data );
+      break;
+   case PCD_PUSH2BYTES:
+   case PCD_RANDOMDIRECTB:
+      printf( " %hhd %hhd\n",
+         segment->data[ 0 ],
+         segment->data[ 1 ] );
+      segment->data += sizeof( segment->data[ 0 ] ) * 2;
+      break;
+   case PCD_PUSH3BYTES:
+      printf( " %hhd %hhd %hhd\n",
+         segment->data[ 0 ],
+         segment->data[ 1 ],
+         segment->data[ 2 ] );
+      segment->data += sizeof( segment->data[ 0 ] ) * 3;
+      break;
+   case PCD_PUSH4BYTES:
+      printf( " %hhd %hhd %hhd %hhd\n",
+         segment->data[ 0 ],
+         segment->data[ 1 ],
+         segment->data[ 2 ],
+         segment->data[ 3 ] );
+      segment->data += sizeof( segment->data[ 0 ] ) * 4;
+      break;
+   case PCD_PUSH5BYTES:
+      printf( " %hhd %hhd %hhd %hhd %hhd\n",
+         segment->data[ 0 ],
+         segment->data[ 1 ],
+         segment->data[ 2 ],
+         segment->data[ 3 ],
+         segment->data[ 4 ] );
+      segment->data += sizeof( segment->data[ 0 ] ) * 5;
+      break;
+   case PCD_PUSHBYTES:
+      {
+         int count = ( unsigned char ) *segment->data;
          printf( " count=%d", count );
-         ++data;
-         while ( count ) {
-            printf( " %hhd", *data );
-            ++data;
-            --count;
+         ++segment->data;
+         for ( int i = 0; i < count; ++i ) {
+            printf( " %hhd", *segment->data );
+            ++segment->data;
          }
          printf( "\n" );
       }
-      else if ( opc == PCD_CASEGOTOSORTED ) {
+      break;
+   case PCD_CASEGOTOSORTED:
+      {
          // Count and cases are 4-byte aligned.
-         int rem = ( offset + ( data - data_start ) ) % sizeof( int );
-         if ( rem ) {
-            data += sizeof( int ) - rem;
+         int remainder = ( segment->offset +
+            ( segment->data - segment->data_start ) ) % sizeof( int );
+         if ( remainder > 0 ) {
+            segment->data += sizeof( int ) - remainder;
          }
          int count = 0;
-         memcpy( &count, data, sizeof( int ) );
-         data += sizeof( int );
+         memcpy( &count, segment->data, sizeof( count ) );
+         segment->data += sizeof( count );
          printf( " num-cases=%d\n", count );
-         while ( count ) {
+         for ( int i = 0; i < count; ++i ) {
             int value = 0;
-            memcpy( &value, data, sizeof( int ) );
+            memcpy( &value, segment->data, sizeof( value ) );
+            segment->data += sizeof( value );
             printf( "%08ld>   case %d: ",
-               offset + ( data - data_start ),
+               segment->offset + ( segment->data - segment->data_start ),
                value );
-            data += sizeof( int );
-            memcpy( &value, data, sizeof( int ) );
-            data += sizeof( int );
-            printf( "%d\n", value );
-            --count;
+            int offset = 0;
+            memcpy( &offset, segment->data, sizeof( offset ) );
+            segment->data += sizeof( offset );
+            printf( "%d\n", offset );
          }
       }
-      else if ( opc == PCD_CALLFUNC ) {
+      break;
+   case PCD_CALLFUNC:
+      {
          int num_args = 0;
          if ( object->small_code ) {
-            char ch = 0;
-            memcpy( &ch, data, sizeof( int ) );
-            num_args = ( int ) ch;
-            ++data;
+            char temp = 0;
+            memcpy( &temp, segment->data, sizeof( temp ) );
+            segment->data += sizeof( temp );
+            num_args = temp;
          }
          else {
-            memcpy( &num_args, data, sizeof( int ) );
-            data += sizeof( int );
+            memcpy( &num_args, segment->data, sizeof( num_args ) );
+            segment->data += sizeof( num_args );
          }
          int index = 0;
          if ( object->small_code ) {
-            short s = 0;
-            memcpy( &s, data, sizeof( short ) );
-            data += sizeof( short );
-            index = ( int ) s;
+            short temp = 0;
+            memcpy( &temp, segment->data, sizeof( temp ) );
+            segment->data += sizeof( temp );
+            index = temp;
          }
          else {
-            memcpy( &index, data, sizeof( int ) );
-            data += sizeof( int );
+            memcpy( &index, segment->data, sizeof( index ) );
+            segment->data += sizeof( index );
          }
          printf( " %d %d\n", num_args, index );
       }
-      // For instructions that don't require any special handling of the
+      break;
+   default:
+      // For instructions that do not require any special handling of the
       // arguments, output arguments as integers.
-      else if ( g_pcodes[ opc ].num_args ) {
-         int count = g_pcodes[ opc ].num_args;
-         while ( count ) {
+      if ( g_pcodes[ segment->opcode ].num_args > 0 ) {
+         for ( int i = 0; i < g_pcodes[ segment->opcode ].num_args; ++i ) {
             int arg = 0;
-            memcpy( &arg, data, sizeof( int ) );
-            data += sizeof( int );
+            memcpy( &arg, segment->data, sizeof( arg ) );
+            segment->data += sizeof( arg );
             printf( " %d", arg );
-            --count;
          }
          printf( "\n" );
       }
@@ -2687,7 +2766,7 @@ static void show_script_directory( struct viewer* viewer,
          printf( "type=unknown:%d ", type );
       }
       printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
-      show_pcode( object, entry.offset,
+      show_pcode( viewer, object, entry.offset,
          calc_code_size( viewer, object, entry.offset ) );
    }
 }
