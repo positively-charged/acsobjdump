@@ -1877,6 +1877,7 @@ static const char* get_script_type_name( int type ) {
       TYPE_RETURN,
       TYPE_EVENT,
       TYPE_KILL,
+      TYPE_REOPEN,
    };
    switch ( type ) {
    case TYPE_CLOSED: return "closed";
@@ -1894,6 +1895,7 @@ static const char* get_script_type_name( int type ) {
    case TYPE_RETURN: return "return";
    case TYPE_EVENT: return "event";
    case TYPE_KILL: return "kill";
+   case TYPE_REOPEN: return "reopen";
    default: return NULL;
    }
 }
