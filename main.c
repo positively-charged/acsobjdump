@@ -633,6 +633,8 @@ static void show_pcode( struct viewer* viewer, struct object* object,
 static void init_pcode_segment( struct object* object,
    struct pcode_segment* segment, int offset, int code_size );
 static bool pcode_segment_end( struct pcode_segment* segment );
+static void expect_pcode_data( struct viewer* viewer,
+   struct pcode_segment* segment, int size );
 static void show_instruction( struct viewer* viewer, struct object* object,
    struct pcode_segment* segment );
 static void show_opcode( struct viewer* viewer, struct object* object,
@@ -1956,6 +1958,19 @@ static bool pcode_segment_end( struct pcode_segment* segment ) {
       segment->invalid_opcode );
 }
 
+static void expect_pcode_data( struct viewer* viewer,
+   struct pcode_segment* segment, int size ) {
+   int left = segment->code_size - ( segment->data - segment->data_start );
+   if ( left < size ) {
+      diag( viewer, DIAG_ERR,
+         "expecting to read %d byte%s of pcode data, "
+         "but this pcode segment has %d byte%s of data left to read",
+         size, ( size == 1 ) ? "" : "s",
+         ( left < 0 ) ? 0 : left, ( left == 1 ) ? "" : "s" );
+      bail( viewer );
+   }
+}
+
 static void show_instruction( struct viewer* viewer, struct object* object,
    struct pcode_segment* segment ) {
    show_opcode( viewer, object, segment );
@@ -1966,24 +1981,27 @@ static void show_instruction( struct viewer* viewer, struct object* object,
 
 static void show_opcode( struct viewer* viewer, struct object* object,
    struct pcode_segment* segment ) {
-   printf( "%08d> ", segment->offset +
-      ( int ) ( segment->data - segment->data_start ) );
+   int pos = segment->offset + ( int ) ( segment->data - segment->data_start );
    int opcode = PCD_NOP;
    if ( object->small_code ) {
       unsigned char temp = 0;
+      expect_pcode_data( viewer, segment, sizeof( temp ) );
       memcpy( &temp, segment->data, sizeof( temp ) );
-      opcode = temp;
       segment->data += sizeof( temp );
+      opcode = temp;
       if ( temp >= 240 ) {
+         expect_pcode_data( viewer, segment, sizeof( temp ) );
          memcpy( &temp, segment->data, sizeof( temp ) );
-         opcode += temp;
          segment->data += sizeof( temp );
+         opcode += temp;
       }
    }
    else {
+      expect_pcode_data( viewer, segment, sizeof( opcode ) );
       memcpy( &opcode, segment->data, sizeof( opcode ) );
       segment->data += sizeof( opcode );
    }
+   printf( "%08d> ", pos );
    if ( opcode >= PCD_NOP && opcode < PCD_TOTAL ) {
       printf( "%s", g_pcodes[ opcode ].name );
       segment->opcode = opcode;
@@ -2122,11 +2140,13 @@ static void show_args( struct viewer* viewer, struct object* object,
          int arg = 0;
          if ( object->small_code ) {
             char temp = 0;
+            expect_pcode_data( viewer, segment, sizeof( temp ) );
             memcpy( &temp, segment->data, sizeof( temp ) );
             segment->data += sizeof( temp );
             arg = temp;
          }
          else {
+            expect_pcode_data( viewer, segment, sizeof( arg ) );
             memcpy( &arg, segment->data, sizeof( arg ) );
             segment->data += sizeof( arg );
          }
@@ -2137,14 +2157,17 @@ static void show_args( struct viewer* viewer, struct object* object,
       {
          int id = 0;
          if ( object->small_code ) {
+            expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
             id = ( unsigned char ) *segment->data;
             ++segment->data;
          }
          else {
+            expect_pcode_data( viewer, segment, sizeof( id ) );
             memcpy( &id, segment->data, sizeof( id ) );
             segment->data += sizeof( id );
          }
          int arg = 0;
+         expect_pcode_data( viewer, segment, sizeof( arg ) );
          memcpy( &arg, segment->data, sizeof( arg ) );
          segment->data += sizeof( arg );
          printf( " %d %d\n", id, arg );
@@ -2154,14 +2177,17 @@ static void show_args( struct viewer* viewer, struct object* object,
       {
          int id = 0;
          if ( object->small_code ) {
+            expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
             id = ( unsigned char ) *segment->data;
             ++segment->data;
          }
          else {
+            expect_pcode_data( viewer, segment, sizeof( id ) );
             memcpy( &id, segment->data, sizeof( id ) );
             segment->data += sizeof( id );
          }
          int args[ 2 ];
+         expect_pcode_data( viewer, segment, sizeof( args ) );
          memcpy( args, segment->data, sizeof( args ) );
          segment->data += sizeof( args );
          printf( " %d %d %d\n",
@@ -2174,14 +2200,17 @@ static void show_args( struct viewer* viewer, struct object* object,
       {
          int id = 0;
          if ( object->small_code ) {
+            expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
             id = ( unsigned char ) *segment->data;
             ++segment->data;
          }
          else {
+            expect_pcode_data( viewer, segment, sizeof( id ) );
             memcpy( &id, segment->data, sizeof( id ) );
             segment->data += sizeof( id );
          }
          int args[ 3 ];
+         expect_pcode_data( viewer, segment, sizeof( args ) );
          memcpy( args, segment->data, sizeof( args ) );
          segment->data += sizeof( args );
          printf( " %d %d %d %d\n",
@@ -2195,14 +2224,17 @@ static void show_args( struct viewer* viewer, struct object* object,
       {
          int id = 0;
          if ( object->small_code ) {
+            expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
             id = ( unsigned char ) *segment->data;
             ++segment->data;
          }
          else {
+            expect_pcode_data( viewer, segment, sizeof( id ) );
             memcpy( &id, segment->data, sizeof( id ) );
             segment->data += sizeof( id );
          }
          int args[ 4 ];
+         expect_pcode_data( viewer, segment, sizeof( args ) );
          memcpy( args, segment->data, sizeof( args ) );
          segment->data += sizeof( args );
          printf( " %d %d %d %d %d\n",
@@ -2217,14 +2249,17 @@ static void show_args( struct viewer* viewer, struct object* object,
       {
          int id = 0;
          if ( object->small_code ) {
+            expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
             id = ( unsigned char ) *segment->data;
             ++segment->data;
          }
          else {
+            expect_pcode_data( viewer, segment, sizeof( id ) );
             memcpy( &id, segment->data, sizeof( id ) );
             segment->data += sizeof( id );
          }
          int args[ 5 ];
+         expect_pcode_data( viewer, segment, sizeof( args ) );
          memcpy( args, segment->data, sizeof( args ) );
          segment->data += sizeof( args );
          printf( " %d %d %d %d %d %d\n",
@@ -2237,68 +2272,66 @@ static void show_args( struct viewer* viewer, struct object* object,
       }
       break;
    case PCD_LSPEC1DIRECTB:
-      {
-         printf( " %hhd %hhd\n",
-            ( unsigned char ) segment->data[ 0 ],
-            segment->data[ 1 ] );
-         segment->data += sizeof( segment->data[ 0 ] ) * 2;
-      }
+      expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 2 );
+      printf( " %hhd %hhd\n",
+         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 1 ] );
+      segment->data += sizeof( segment->data[ 0 ] ) * 2;
       break;
    case PCD_LSPEC2DIRECTB:
-      {
-         printf( " %hhd %hhd %hhd\n",
-            ( unsigned char ) segment->data[ 0 ],
-            segment->data[ 1 ],
-            segment->data[ 2 ] );
-         segment->data += sizeof( segment->data[ 0 ] ) * 3;
-      }
+      expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 3 );
+      printf( " %hhd %hhd %hhd\n",
+         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 1 ],
+         segment->data[ 2 ] );
+      segment->data += sizeof( segment->data[ 0 ] ) * 3;
       break;
    case PCD_LSPEC3DIRECTB:
-      {
-         printf( " %hhd %hhd %hhd %hhd\n",
-            ( unsigned char ) segment->data[ 0 ],
-            segment->data[ 1 ],
-            segment->data[ 2 ],
-            segment->data[ 3 ] );
-         segment->data += sizeof( segment->data[ 0 ] ) * 4;
-      }
+      expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 4 );
+      printf( " %hhd %hhd %hhd %hhd\n",
+         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 1 ],
+         segment->data[ 2 ],
+         segment->data[ 3 ] );
+      segment->data += sizeof( segment->data[ 0 ] ) * 4;
       break;
    case PCD_LSPEC4DIRECTB:
-      {
-         printf( " %hhd %hhd %hhd %hhd %hhd\n",
-            ( unsigned char ) segment->data[ 0 ],
-            segment->data[ 1 ],
-            segment->data[ 2 ],
-            segment->data[ 3 ],
-            segment->data[ 4 ] );
-         segment->data += sizeof( segment->data[ 0 ] ) * 5;
-      }
+      expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 5 );
+      printf( " %hhd %hhd %hhd %hhd %hhd\n",
+         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 1 ],
+         segment->data[ 2 ],
+         segment->data[ 3 ],
+         segment->data[ 4 ] );
+      segment->data += sizeof( segment->data[ 0 ] ) * 5;
       break;
    case PCD_LSPEC5DIRECTB:
-      {
-         printf( " %hhd %hhd %hhd %hhd %hhd %hhd\n",
-            ( unsigned char ) segment->data[ 0 ],
-            segment->data[ 1 ],
-            segment->data[ 2 ],
-            segment->data[ 3 ],
-            segment->data[ 4 ],
-            segment->data[ 5 ] );
-         segment->data += sizeof( segment->data[ 0 ] ) * 6;
-      }
+      expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 6 );
+      printf( " %hhd %hhd %hhd %hhd %hhd %hhd\n",
+         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 1 ],
+         segment->data[ 2 ],
+         segment->data[ 3 ],
+         segment->data[ 4 ],
+         segment->data[ 5 ] );
+      segment->data += sizeof( segment->data[ 0 ] ) * 6;
       break;
    case PCD_PUSHBYTE:
    case PCD_DELAYDIRECTB:
+      expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
       printf( " %hhd\n", *segment->data );
       segment->data += sizeof( *segment->data );
       break;
    case PCD_PUSH2BYTES:
    case PCD_RANDOMDIRECTB:
+      expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 2 );
       printf( " %hhd %hhd\n",
          segment->data[ 0 ],
          segment->data[ 1 ] );
       segment->data += sizeof( segment->data[ 0 ] ) * 2;
       break;
    case PCD_PUSH3BYTES:
+      expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 3 );
       printf( " %hhd %hhd %hhd\n",
          segment->data[ 0 ],
          segment->data[ 1 ],
@@ -2306,6 +2339,7 @@ static void show_args( struct viewer* viewer, struct object* object,
       segment->data += sizeof( segment->data[ 0 ] ) * 3;
       break;
    case PCD_PUSH4BYTES:
+      expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 4 );
       printf( " %hhd %hhd %hhd %hhd\n",
          segment->data[ 0 ],
          segment->data[ 1 ],
@@ -2314,6 +2348,7 @@ static void show_args( struct viewer* viewer, struct object* object,
       segment->data += sizeof( segment->data[ 0 ] ) * 4;
       break;
    case PCD_PUSH5BYTES:
+      expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 5 );
       printf( " %hhd %hhd %hhd %hhd %hhd\n",
          segment->data[ 0 ],
          segment->data[ 1 ],
@@ -2324,9 +2359,12 @@ static void show_args( struct viewer* viewer, struct object* object,
       break;
    case PCD_PUSHBYTES:
       {
+         expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
          int count = ( unsigned char ) *segment->data;
-         printf( " count=%d", count );
          ++segment->data;
+         printf( " count=%d", count );
+         expect_pcode_data( viewer, segment,
+            sizeof( segment->data[ 0 ] ) * count );
          for ( int i = 0; i < count; ++i ) {
             printf( " %hhd", *segment->data );
             ++segment->data;
@@ -2340,19 +2378,24 @@ static void show_args( struct viewer* viewer, struct object* object,
          int remainder = ( segment->offset +
             ( segment->data - segment->data_start ) ) % sizeof( int );
          if ( remainder > 0 ) {
-            segment->data += sizeof( int ) - remainder;
+            int padding = sizeof( int ) - remainder;
+            expect_pcode_data( viewer, segment, padding );
+            segment->data += padding;
          }
          int count = 0;
+         expect_pcode_data( viewer, segment, sizeof( count ) );
          memcpy( &count, segment->data, sizeof( count ) );
          segment->data += sizeof( count );
          printf( " num-cases=%d\n", count );
          for ( int i = 0; i < count; ++i ) {
             int value = 0;
+            expect_pcode_data( viewer, segment, sizeof( value ) );
             memcpy( &value, segment->data, sizeof( value ) );
             segment->data += sizeof( value );
             printf( "%08d>   case %d: ", segment->offset +
                ( int ) ( segment->data - segment->data_start ), value );
             int offset = 0;
+            expect_pcode_data( viewer, segment, sizeof( offset ) );
             memcpy( &offset, segment->data, sizeof( offset ) );
             segment->data += sizeof( offset );
             printf( "%d\n", offset );
@@ -2364,22 +2407,26 @@ static void show_args( struct viewer* viewer, struct object* object,
          int num_args = 0;
          if ( object->small_code ) {
             char temp = 0;
+            expect_pcode_data( viewer, segment, sizeof( temp ) );
             memcpy( &temp, segment->data, sizeof( temp ) );
             segment->data += sizeof( temp );
             num_args = temp;
          }
          else {
+            expect_pcode_data( viewer, segment, sizeof( num_args ) );
             memcpy( &num_args, segment->data, sizeof( num_args ) );
             segment->data += sizeof( num_args );
          }
          int index = 0;
          if ( object->small_code ) {
             short temp = 0;
+            expect_pcode_data( viewer, segment, sizeof( temp ) );
             memcpy( &temp, segment->data, sizeof( temp ) );
             segment->data += sizeof( temp );
             index = temp;
          }
          else {
+            expect_pcode_data( viewer, segment, sizeof( index ) );
             memcpy( &index, segment->data, sizeof( index ) );
             segment->data += sizeof( index );
          }
@@ -2392,6 +2439,7 @@ static void show_args( struct viewer* viewer, struct object* object,
       if ( g_pcodes[ segment->opcode ].num_args > 0 ) {
          for ( int i = 0; i < g_pcodes[ segment->opcode ].num_args; ++i ) {
             int arg = 0;
+            expect_pcode_data( viewer, segment, sizeof( arg ) );
             memcpy( &arg, segment->data, sizeof( arg ) );
             segment->data += sizeof( arg );
             printf( " %d", arg );
