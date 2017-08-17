@@ -2813,8 +2813,15 @@ static void show_script_directory( struct viewer* viewer,
          printf( "type=unknown:%d ", type );
       }
       printf( "params=%d offset=%d\n", entry.num_param, entry.offset );
-      show_pcode( viewer, object, entry.offset,
-         calc_code_size( viewer, object, entry.offset ) );
+      if ( offset_in_object_file( object, entry.offset ) ) {
+         show_pcode( viewer, object, entry.offset,
+            calc_code_size( viewer, object, entry.offset ) );
+      }
+      else {
+         diag( viewer, DIAG_WARN,
+            "offset (%d) points outside the object file, so the script code "
+            "will not be shown", entry.offset );  
+      }
    }
 }
 
