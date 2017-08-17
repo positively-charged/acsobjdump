@@ -473,7 +473,7 @@ struct options {
 };
 
 struct object {
-   const char* data;
+   const unsigned char* data;
    int size;
    enum {
       FORMAT_UNKNOWN,
@@ -496,7 +496,7 @@ struct header {
 
 struct chunk {
    char name[ 5 ];
-   const char* data; 
+   const unsigned char* data; 
    int size;
    enum {
       CHUNK_UNKNOWN,
@@ -558,8 +558,8 @@ struct func_entry {
 };
 
 struct pcode_segment {
-   const char* data_start;
-   const char* data;
+   const unsigned char* data_start;
+   const unsigned char* data;
    int offset;
    int code_size;
    int opcode;
@@ -582,22 +582,23 @@ static void deinit_viewer( struct viewer* viewer );
 static void read_object_file( struct viewer* viewer );
 static bool read_object_file_data( struct viewer* viewer, FILE* fh );
 static bool perform_operation( struct viewer* viewer );
-static void init_object( struct object* object, const char* data, int size );
-static int data_left( struct object* object, const char* data );
-static bool offset_in_range( struct object* object, const char* start,
-   const char* end, int offset );
+static void init_object( struct object* object, const unsigned char* data,
+   int size );
+static int data_left( struct object* object, const unsigned char* data );
+static bool offset_in_range( struct object* object, const unsigned char* start,
+   const unsigned char* end, int offset );
 static bool offset_in_object_file( struct object* object, int offset );
 static void expect_data( struct viewer* viewer, struct object* object,
-   const char* start, int size );
+   const unsigned char* start, int size );
 static void expect_offset_in_object_file( struct viewer* viewer,
    struct object* object, int offset );
 static void expect_chunk_offset_in_chunk( struct viewer* viewer,
    struct chunk* chunk, int offset );
 static void expect_chunk_data( struct viewer* viewer, struct chunk* chunk,
-   const char* start, int size );
-static int chunk_data_left( struct chunk* chunk, const char* data );
-static bool chunk_offset_in_range( struct chunk* chunk, const char* start,
-   const char* end, int offset );
+   const unsigned char* start, int size );
+static int chunk_data_left( struct chunk* chunk, const unsigned char* data );
+static bool chunk_offset_in_range( struct chunk* chunk,
+   const unsigned char* start, const unsigned char* end, int offset );
 static bool chunk_offset_in_chunk( struct chunk* chunk, int offset );
 static void determine_format( struct viewer* viewer, struct object* object );
 static bool peek_real_id( struct object* object, struct header* header );
@@ -623,7 +624,7 @@ static void show_mexp( struct viewer* viewer, struct chunk* chunk );
 static void show_sptr( struct viewer* viewer, struct object* object,
    struct chunk* chunk );
 static void read_acse_script_entry( struct viewer* viewer,
-   struct object* object, struct chunk* chunk, const char* data,
+   struct object* object, struct chunk* chunk, const unsigned char* data,
    struct common_acse_script_entry* common_entry );
 static int calc_code_size( struct viewer* viewer, struct object* object,
    int offset );
@@ -1223,7 +1224,7 @@ static bool read_object_file_data( struct viewer* viewer, FILE* fh ) {
 
 static bool perform_operation( struct viewer* viewer ) {
    struct object object;
-   init_object( &object, ( char* ) viewer->object_data, viewer->object_size );
+   init_object( &object, viewer->object_data, viewer->object_size );
    determine_format( viewer, &object );
    determine_object_offsets( viewer, &object );
    const char* format = "ACSE";
@@ -1276,7 +1277,8 @@ static bool perform_operation( struct viewer* viewer ) {
    return success;
 }
 
-static void init_object( struct object* object, const char* data, int size ) {
+static void init_object( struct object* object, const unsigned char* data,
+   int size ) {
    object->data = data;
    object->size = size;
    object->format = FORMAT_UNKNOWN;
@@ -1288,12 +1290,12 @@ static void init_object( struct object* object, const char* data, int size ) {
    object->small_code = false;
 }
  
-static int data_left( struct object* object, const char* data ) {
+static int data_left( struct object* object, const unsigned char* data ) {
    return ( int ) ( ( object->data + object->size ) - data );
 }
 
-static bool offset_in_range( struct object* object, const char* start,
-   const char* end, int offset ) {
+static bool offset_in_range( struct object* object, const unsigned char* start,
+   const unsigned char* end, int offset ) {
    return ( offset >= ( start - object->data ) &&
       offset < ( end - object->data ) );
 }
@@ -1304,7 +1306,7 @@ static bool offset_in_object_file( struct object* object, int offset ) {
 }
 
 static void expect_data( struct viewer* viewer, struct object* object,
-   const char* start, int size ) {
+   const unsigned char* start, int size ) {
    int left = data_left( object, start );
    if ( left < size ) {
       diag( viewer, DIAG_ERR,
@@ -1338,7 +1340,7 @@ static void expect_chunk_offset_in_chunk( struct viewer* viewer,
 }
 
 static void expect_chunk_data( struct viewer* viewer, struct chunk* chunk,
-   const char* start, int size ) {
+   const unsigned char* start, int size ) {
    int left = chunk_data_left( chunk, start );
    if ( left < size ) {
       diag( viewer, DIAG_ERR,
@@ -1350,12 +1352,12 @@ static void expect_chunk_data( struct viewer* viewer, struct chunk* chunk,
    }
 }
 
-static int chunk_data_left( struct chunk* chunk, const char* data ) {
+static int chunk_data_left( struct chunk* chunk, const unsigned char* data ) {
    return ( int ) ( ( chunk->data + chunk->size ) - data );
 }
 
-static bool chunk_offset_in_range( struct chunk* chunk, const char* start,
-   const char* end, int offset ) {
+static bool chunk_offset_in_range( struct chunk* chunk,
+   const unsigned char* start, const unsigned char* end, int offset ) {
    return ( offset >= ( start - chunk->data ) &&
       offset < ( end - chunk->data ) );
 }
@@ -1408,7 +1410,7 @@ static void determine_format( struct viewer* viewer, struct object* object ) {
 static bool peek_real_id( struct object* object, struct header* header ) {
    int offset = header->offset - sizeof( header->id );
    if ( offset_in_object_file( object, offset ) ) {
-      const char* data = object->data + offset;
+      const unsigned char* data = object->data + offset;
       if ( memcmp( data, "ACSE", 4 ) == 0 ||
          memcmp( data, "ACSe", 4 ) == 0 ) {
          return true;
@@ -1420,7 +1422,7 @@ static bool peek_real_id( struct object* object, struct header* header ) {
 static void determine_object_offsets( struct viewer* viewer,
    struct object* object ) {
    if ( script_directory_present( object ) ) {
-      const char* data = object->data + object->directory_offset;
+      const unsigned char* data = object->data + object->directory_offset;
       int total_scripts = 0;
       expect_data( viewer, object, data, sizeof( total_scripts ) );
       memcpy( &total_scripts, data, sizeof( total_scripts ) );
@@ -1559,7 +1561,7 @@ static void show_aini( struct viewer* viewer, struct chunk* chunk ) {
 }
 
 static void show_aimp( struct viewer* viewer, struct chunk* chunk ) {
-   const char* data = chunk->data;
+   const unsigned char* data = chunk->data;
    int total_arrays = 0;
    expect_chunk_data( viewer, chunk, data, sizeof( total_arrays ) );
    memcpy( &total_arrays, data, sizeof( total_arrays ) );
@@ -1609,7 +1611,7 @@ static void show_atag( struct viewer* viewer, struct chunk* chunk ) {
 }
 
 static void show_atag_version0( struct viewer* viewer, struct chunk* chunk ) {
-   const char* data = chunk->data;
+   const unsigned char* data = chunk->data;
    unsigned char version = 0;
    expect_chunk_data( viewer, chunk, data, sizeof( version ) );
    memcpy( &version, data, sizeof( version ) );
@@ -1686,7 +1688,7 @@ static void show_func( struct viewer* viewer, struct object* object,
 }
 
 static void show_fnam( struct viewer* viewer, struct chunk* chunk ) {
-   const char* data = chunk->data;
+   const unsigned char* data = chunk->data;
    int total_names = 0;
    expect_chunk_data( viewer, chunk, data, sizeof( total_names ) );
    memcpy( &total_names, data, sizeof( total_names ) );
@@ -1704,7 +1706,7 @@ static void show_fnam( struct viewer* viewer, struct chunk* chunk ) {
 }
 
 static void show_mini( struct viewer* viewer, struct chunk* chunk ) {
-   const char* data = chunk->data;
+   const unsigned char* data = chunk->data;
    int first_var = 0;
    expect_chunk_data( viewer, chunk, data, sizeof( first_var ) );
    memcpy( &first_var, data, sizeof( first_var ) );
@@ -1733,7 +1735,7 @@ static void show_mimp( struct viewer* viewer, struct chunk* chunk ) {
 }
 
 static void show_mexp( struct viewer* viewer, struct chunk* chunk ) {
-   const char* data = chunk->data;
+   const unsigned char* data = chunk->data;
    int total_names = 0;
    expect_chunk_data( viewer, chunk, data, sizeof( total_names ) );
    memcpy( &total_names, data, sizeof( total_names ) );
@@ -1780,7 +1782,7 @@ static void show_sptr( struct viewer* viewer, struct object* object,
 }
 
 static void read_acse_script_entry( struct viewer* viewer,
-   struct object* object, struct chunk* chunk, const char* data,
+   struct object* object, struct chunk* chunk, const unsigned char* data,
    struct common_acse_script_entry* common_entry ) {
    if ( object->indirect_format ) {
       struct {
@@ -1850,7 +1852,7 @@ static int calc_code_size( struct viewer* viewer, struct object* object,
    // The starting offset of a script in the script directory can be used as
    // the end offset.
    if ( script_directory_present( object ) ) {
-      const char* data = object->data + object->directory_offset;
+      const unsigned char* data = object->data + object->directory_offset;
       int count = 0;
       memcpy( &count, data, sizeof( count ) );
       data += sizeof( count );
@@ -2158,7 +2160,7 @@ static void show_args( struct viewer* viewer, struct object* object,
          int id = 0;
          if ( object->small_code ) {
             expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
-            id = ( unsigned char ) *segment->data;
+            id = *segment->data;
             ++segment->data;
          }
          else {
@@ -2178,7 +2180,7 @@ static void show_args( struct viewer* viewer, struct object* object,
          int id = 0;
          if ( object->small_code ) {
             expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
-            id = ( unsigned char ) *segment->data;
+            id = *segment->data;
             ++segment->data;
          }
          else {
@@ -2201,7 +2203,7 @@ static void show_args( struct viewer* viewer, struct object* object,
          int id = 0;
          if ( object->small_code ) {
             expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
-            id = ( unsigned char ) *segment->data;
+            id = *segment->data;
             ++segment->data;
          }
          else {
@@ -2225,7 +2227,7 @@ static void show_args( struct viewer* viewer, struct object* object,
          int id = 0;
          if ( object->small_code ) {
             expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
-            id = ( unsigned char ) *segment->data;
+            id = *segment->data;
             ++segment->data;
          }
          else {
@@ -2250,7 +2252,7 @@ static void show_args( struct viewer* viewer, struct object* object,
          int id = 0;
          if ( object->small_code ) {
             expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
-            id = ( unsigned char ) *segment->data;
+            id = *segment->data;
             ++segment->data;
          }
          else {
@@ -2274,14 +2276,14 @@ static void show_args( struct viewer* viewer, struct object* object,
    case PCD_LSPEC1DIRECTB:
       expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 2 );
       printf( " %hhd %hhd\n",
-         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 0 ],
          segment->data[ 1 ] );
       segment->data += sizeof( segment->data[ 0 ] ) * 2;
       break;
    case PCD_LSPEC2DIRECTB:
       expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 3 );
       printf( " %hhd %hhd %hhd\n",
-         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 0 ],
          segment->data[ 1 ],
          segment->data[ 2 ] );
       segment->data += sizeof( segment->data[ 0 ] ) * 3;
@@ -2289,7 +2291,7 @@ static void show_args( struct viewer* viewer, struct object* object,
    case PCD_LSPEC3DIRECTB:
       expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 4 );
       printf( " %hhd %hhd %hhd %hhd\n",
-         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 0 ],
          segment->data[ 1 ],
          segment->data[ 2 ],
          segment->data[ 3 ] );
@@ -2298,7 +2300,7 @@ static void show_args( struct viewer* viewer, struct object* object,
    case PCD_LSPEC4DIRECTB:
       expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 5 );
       printf( " %hhd %hhd %hhd %hhd %hhd\n",
-         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 0 ],
          segment->data[ 1 ],
          segment->data[ 2 ],
          segment->data[ 3 ],
@@ -2308,7 +2310,7 @@ static void show_args( struct viewer* viewer, struct object* object,
    case PCD_LSPEC5DIRECTB:
       expect_pcode_data( viewer, segment, sizeof( segment->data[ 0 ] ) * 6 );
       printf( " %hhd %hhd %hhd %hhd %hhd %hhd\n",
-         ( unsigned char ) segment->data[ 0 ],
+         segment->data[ 0 ],
          segment->data[ 1 ],
          segment->data[ 2 ],
          segment->data[ 3 ],
@@ -2360,7 +2362,7 @@ static void show_args( struct viewer* viewer, struct object* object,
    case PCD_PUSHBYTES:
       {
          expect_pcode_data( viewer, segment, sizeof( *segment->data ) );
-         int count = ( unsigned char ) *segment->data;
+         int count = *segment->data;
          ++segment->data;
          printf( " count=%d", count );
          expect_pcode_data( viewer, segment,
@@ -2509,7 +2511,7 @@ static void show_svct( struct viewer* viewer, struct chunk* chunk ) {
 }
 
 static void show_snam( struct viewer* viewer, struct chunk* chunk ) {
-   const char* data = chunk->data;
+   const unsigned char* data = chunk->data;
    int total_names = 0;
    expect_chunk_data( viewer, chunk, data, sizeof( total_names ) );
    memcpy( &total_names, data, sizeof( total_names ) );
@@ -2537,11 +2539,11 @@ static const char* read_chunk_string( struct viewer* viewer,
          chunk->name );
       bail( viewer );
    }
-   return chunk->data + offset;
+   return ( const char* ) ( chunk->data + offset );
 }
 
 static void show_strl_stre( struct viewer* viewer, struct chunk* chunk ) {
-   const char* data = chunk->data;
+   const unsigned char* data = chunk->data;
    expect_chunk_data( viewer, chunk, data, sizeof( int ) );
    data += sizeof( int ); // Padding. Ignore it.
    int total_strings = 0;
@@ -2570,14 +2572,14 @@ static const char* read_strl_stre_string( struct viewer* viewer,
          chunk->name );
       bail( viewer );
    }
-   return chunk->data + offset;
+   return ( const char* ) ( chunk->data + offset );
 }
 
 static bool is_strl_stre_string_nul_terminated( struct chunk* chunk,
    int offset ) {
    int i = offset;
    while ( i < chunk->size ) {
-      char ch = chunk->data[ i ];
+      char ch = ( char ) chunk->data[ i ];
       if ( chunk->type == CHUNK_STRE ) {
          ch = decode_ch( offset, i - offset, ch );
       }
@@ -2627,7 +2629,7 @@ static void show_string( int index, int offset, const char* value,
 }
 
 static void show_sary_fary( struct viewer* viewer, struct chunk* chunk ) {
-   const char* data = chunk->data;
+   const unsigned char* data = chunk->data;
    short index = 0;
    expect_chunk_data( viewer, chunk, data, sizeof( index ) );
    memcpy( &index, data, sizeof( index ) );
@@ -2697,7 +2699,7 @@ static bool read_chunk( struct viewer* viewer, struct chunk_reader* reader,
 
 static void init_chunk( struct viewer* viewer, struct object* object,
    int offset, struct chunk* chunk ) {
-   const char* data = object->data + offset;
+   const unsigned char* data = object->data + offset;
    struct chunk_header header;
    expect_data( viewer, object, data, sizeof( header ) );
    memcpy( &header, data, sizeof( header ) );
@@ -2791,7 +2793,7 @@ static void show_all_chunks( struct viewer* viewer, struct object* object ) {
 static void show_script_directory( struct viewer* viewer,
    struct object* object ) {
    printf( "== script directory (offset=%d)\n", object->directory_offset );
-   const char* data = object->data + object->directory_offset;
+   const unsigned char* data = object->data + object->directory_offset;
    int total_scripts = 0;
    expect_data( viewer, object, data, sizeof( total_scripts ) );
    memcpy( &total_scripts, data, sizeof( total_scripts ) );
@@ -2828,7 +2830,7 @@ static void show_script_directory( struct viewer* viewer,
 static void show_string_directory( struct viewer* viewer,
    struct object* object ) {
    printf( "== string directory (offset=%d)\n", object->string_offset );
-   const char* data = object->data + object->string_offset;
+   const unsigned char* data = object->data + object->string_offset;
    int total_strings = 0;
    expect_data( viewer, object, data, sizeof( total_strings ) );
    memcpy( &total_strings, data, sizeof( total_strings ) );
