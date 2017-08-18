@@ -1550,19 +1550,33 @@ static void show_aray( struct viewer* viewer, struct chunk* chunk ) {
 }
 
 static void show_aini( struct viewer* viewer, struct chunk* chunk ) {
-   int pos = 0;
+   const unsigned char* data = chunk->data;
+   int data_left = chunk->size;
    int index = 0;
-   expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( index ) );
-   memcpy( &index, chunk->data + pos, sizeof( index ) );
-   pos += sizeof( index );
-   printf( "array-index=%d\n", index );
-   while ( pos < chunk->size ) {
-      int value = 0;
-      expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( value ) );
-      memcpy( &value, chunk->data + pos, sizeof( value ) );
-      int element = ( pos - sizeof( index ) ) / sizeof( value );
-      printf( "[%d] = %d\n", element, value );
-      pos += sizeof( value );
+   if ( data_left < sizeof( index ) ) {
+      STATIC_ASSERT( sizeof( index ) != 1 );
+      diag( viewer, DIAG_WARN,
+         "expecting to read array index (%d bytes), but chunk has %d byte%s "
+         "of data left", sizeof( index ), data_left,
+         ( data_left == 1 ) ? "" : "s" );
+      return;
+   }
+   memcpy( &index, data, sizeof( index ) );
+   data_left -= sizeof( index );
+   data += sizeof( index );
+   int initz = 0;
+   int total_initz = data_left / sizeof( initz );
+   printf( "array-index=%d total-initializers=%d\n", index, total_initz );
+   for ( int i = 0; i < total_initz; ++i ) {
+      memcpy( &initz, data, sizeof( initz ) );
+      data_left -= sizeof( initz );
+      data += sizeof( initz );
+      printf( "[%d] = %d\n", i, initz );
+   }
+   if ( data_left > 0 ) {
+      diag( viewer, DIAG_WARN,
+         "chunk has %d byte%s of data left at the end", data_left,
+         ( data_left == 1 ) ? "" : "s" );
    }
 }
 
