@@ -1530,16 +1530,22 @@ static bool show_chunk( struct viewer* viewer, struct object* object,
 }
 
 static void show_aray( struct viewer* viewer, struct chunk* chunk ) {
-   int pos = 0;
-   while ( pos < chunk->size ) {
-      struct {
-         int number;
-         int size;
-      } entry;
-      expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( entry ) );
-      memcpy( &entry, chunk->data + pos, sizeof( entry ) );
+   struct {
+      int number;
+      int size;
+   } entry;
+   int total_entries = chunk->size / sizeof( entry );
+   for ( int i = 0; i < total_entries; ++i ) {
+      memcpy( &entry, chunk->data + ( i * sizeof( entry ) ), sizeof( entry ) );
       printf( "index=%d size=%d\n", entry.number, entry.size );
-      pos += sizeof( entry );
+   }
+   int data_left = chunk->size - ( total_entries * sizeof( entry ) );
+   if ( data_left > 0 ) {
+      STATIC_ASSERT( sizeof( entry ) > 1 );
+      diag( viewer, DIAG_WARN,
+         "%s chunk has %d byte%s of data left, but an entry must be %d bytes",
+         chunk->name, data_left, ( data_left == 1 ) ? "" : "s",
+         sizeof( entry ) );
    }
 }
 
