@@ -596,6 +596,8 @@ static void expect_chunk_offset_in_chunk( struct viewer* viewer,
    struct chunk* chunk, int offset );
 static void expect_chunk_data( struct viewer* viewer, struct chunk* chunk,
    const unsigned char* start, int size );
+static void warn_expect_chunk_data( struct viewer* viewer, int data_left,
+   int data_size, const char* data_name );
 static int chunk_data_left( struct chunk* chunk, const unsigned char* data );
 static bool chunk_offset_in_range( struct chunk* chunk,
    const unsigned char* start, const unsigned char* end, int offset );
@@ -1352,6 +1354,14 @@ static void expect_chunk_data( struct viewer* viewer, struct chunk* chunk,
    }
 }
 
+static void warn_expect_chunk_data( struct viewer* viewer, int data_left,
+   int data_size, const char* data_name ) {
+   diag( viewer, DIAG_WARN,
+      "expecting to read %s (%d bytes), but chunk does not have enough data "
+      "left (%d byte%s)", data_name, data_size, data_left,
+      ( data_left == 1 ) ? "" : "s" );
+}
+
 static int chunk_data_left( struct chunk* chunk, const unsigned char* data ) {
    return ( int ) ( ( chunk->data + chunk->size ) - data );
 }
@@ -1742,15 +1752,29 @@ static void show_mini( struct viewer* viewer, struct chunk* chunk ) {
 }
 
 static void show_mimp( struct viewer* viewer, struct chunk* chunk ) {
-   int pos = 0;
-   while ( pos < chunk->size ) {
+   const unsigned char* data = chunk->data;
+   int data_left = chunk->size;
+   while ( data_left > 0 ) {
       int index = 0;
-      expect_chunk_data( viewer, chunk, chunk->data + pos, sizeof( index ) );
-      memcpy( &index, chunk->data + pos, sizeof( index ) );
-      pos += sizeof( index );
-      const char* name = read_chunk_string( viewer, chunk, pos );
-      printf( "index=%d name=%s\n", index, name );
-      pos += strlen( name ) + 1; // Plus one for NUL character.
+      if ( data_left < sizeof( index ) ) {
+         warn_expect_chunk_data( viewer, data_left, sizeof( index ),
+            "a variable index" );
+         return;
+      }
+      memcpy( &index, data, sizeof( index ) );
+      data += sizeof( index );
+      data_left -= sizeof( index );
+      const unsigned char* data_nul = memchr( data, '\0', data_left );
+      if ( ! data_nul ) {
+         diag( viewer, DIAG_WARN,
+            "missing a NUL-terminated string containing the variable name for "
+            "variable with index %d", index );
+         return;
+      }
+      printf( "index=%d name=%s\n", index, ( const char* ) data );
+      int data_size = ( data_nul - data ) + 1; // Plus one for NUL character.
+      data += data_size;
+      data_left -= data_size;
    }
 }
 
