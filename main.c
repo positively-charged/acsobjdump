@@ -598,6 +598,7 @@ static void expect_chunk_data( struct viewer* viewer, struct chunk* chunk,
    const unsigned char* start, int size );
 static void warn_expect_chunk_data( struct viewer* viewer, int data_left,
    int data_size, const char* data_name );
+static void warn_unused_chunk_data( struct viewer* viewer, int data_left );
 static int chunk_data_left( struct chunk* chunk, const unsigned char* data );
 static bool chunk_offset_in_range( struct chunk* chunk,
    const unsigned char* start, const unsigned char* end, int offset );
@@ -1362,6 +1363,12 @@ static void warn_expect_chunk_data( struct viewer* viewer, int data_left,
       ( data_left == 1 ) ? "" : "s" );
 }
 
+static void warn_unused_chunk_data( struct viewer* viewer, int data_left ) {
+   diag( viewer, DIAG_WARN,
+      "chunk has %d byte%s of data left at the end", data_left,
+      ( data_left == 1 ) ? "" : "s" );
+}
+
 static int chunk_data_left( struct chunk* chunk, const unsigned char* data ) {
    return ( int ) ( ( chunk->data + chunk->size ) - data );
 }
@@ -1737,17 +1744,27 @@ static void show_fnam( struct viewer* viewer, struct chunk* chunk ) {
 
 static void show_mini( struct viewer* viewer, struct chunk* chunk ) {
    const unsigned char* data = chunk->data;
+   int data_left = chunk->size;
    int first_var = 0;
-   expect_chunk_data( viewer, chunk, data, sizeof( first_var ) );
+   if ( data_left < sizeof( first_var ) ) {
+      warn_expect_chunk_data( viewer, data_left, sizeof( first_var ),
+         "index of first variable" );
+      return;
+   }
    memcpy( &first_var, data, sizeof( first_var ) );
    data += sizeof( first_var );
-   printf( "first-var=%d\n", first_var );
-   int value = 0;
-   int total_values = ( chunk->size - sizeof( first_var ) ) / sizeof( value );
-   for ( int i = 0; i < total_values; ++i ) {
-      memcpy( &value, data, sizeof( value ) );
-      data += sizeof( value );
-      printf( "index=%d value=%d\n", first_var + i, value );
+   data_left -= sizeof( first_var );
+   int initz = 0;
+   int total_initz = data_left / sizeof( initz );
+   printf( "first-var=%d total-initializers=%d\n", first_var, total_initz );
+   for ( int i = 0; i < total_initz; ++i ) {
+      memcpy( &initz, data, sizeof( initz ) );
+      data += sizeof( initz );
+      data_left -= sizeof( initz );
+      printf( "index=%d value=%d\n", first_var + i, initz );
+   }
+   if ( data_left > 0 ) {
+      warn_unused_chunk_data( viewer, data_left );
    }
 }
 
